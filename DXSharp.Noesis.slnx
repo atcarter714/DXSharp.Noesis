@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/samples/">
+    <Project Path="samples/OrbitalCommand/OrbitalCommand.csproj" />
+    <Project Path="samples/Starfighter/Starfighter.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/DXSharp.Noesis/DXSharp.Noesis.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Verification/Verification.csproj" />
+  </Folder>
+</Solution>

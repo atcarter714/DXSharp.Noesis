@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>Arkaen.Starfighter</AssemblyName>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/DXSharp.Noesis/DXSharp.Noesis.csproj" />
+    <PackageReference Include="Noesis.App" />
+    <None Update="Ui/Cockpit.xaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Scene.hlsl" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

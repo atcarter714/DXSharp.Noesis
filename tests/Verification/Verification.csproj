@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RuntimeIdentifiers>win-x64;linux-x64</RuntimeIdentifiers>
+    <RuntimeIdentifier Condition="'$(OS)' == 'Windows_NT'">win-x64</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(OS)' != 'Windows_NT'">linux-x64</RuntimeIdentifier>
+    <NoesisTargetSystem Condition="'$(OS)' != 'Windows_NT'">linux</NoesisTargetSystem>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Noesis.GUI" />
+    <PackageReference Include="Noesis.App" />
+    <Compile Include="../../samples/OrbitalCommand/SceneInput.cs" Link="SceneInput.cs" />
+    <Compile Include="../../samples/OrbitalCommand/Simulation.cs" Link="Simulation.cs" />
+    <Compile Include="../../samples/OrbitalCommand/CommandDeck.cs" Link="CommandDeck.cs" />
+    <Compile Include="../../samples/OrbitalCommand/SceneGeometry.cs" Link="SceneGeometry.cs" />
+    <Compile Include="../../samples/Starfighter/Game.cs" Link="Starfighter/Game.cs" />
+    <Compile Include="../../samples/Starfighter/SceneGeometry.cs" Link="Starfighter/SceneGeometry.cs" />
+    <Compile Include="../../samples/OrbitalCommand/ThemeFontProvider.cs" Link="ThemeFontProvider.cs" />
+    <Compile Include="../../src/DXSharp.Noesis/OverlayInput.cs" Link="OverlayInput.cs" />
+    <None Include="../../samples/OrbitalCommand/Ui/*.xaml" Link="Ui/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../samples/Starfighter/Ui/*.xaml" Link="Ui/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

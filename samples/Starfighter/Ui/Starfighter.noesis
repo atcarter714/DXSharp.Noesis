@@ -1,0 +1,5 @@
+<Project>
+  <Assembly>Arkaen.Starfighter</Assembly>
+  <DefaultDataNamespace>Arkaen.Starfighter</DefaultDataNamespace>
+  <StartupDocument>Cockpit.xaml</StartupDocument>
+</Project>

@@ -1,0 +1,24 @@
+trigger:
+  branches:
+    include: ['*']
+pr:
+  branches:
+    include: ['*']
+pool:
+  vmImage: windows-2025
+strategy:
+  matrix:
+    Debug:
+      configuration: Debug
+    Release:
+      configuration: Release
+steps:
+- task: UseDotNet@2
+  inputs:
+    packageType: sdk
+    version: '10.0.x'
+- pwsh: ./eng/build.ps1 -Configuration $(configuration)
+  displayName: Build, verify and pack
+- publish: artifacts/packages
+  artifact: packages-$(configuration)
+  condition: and(succeeded(), eq(variables['configuration'], 'Release'))

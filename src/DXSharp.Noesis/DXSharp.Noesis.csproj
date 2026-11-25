@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>DXSharp.Noesis</PackageId>
+    <Version>0.1.0-preview.1</Version>
+    <Authors>Arkaen Solutions</Authors>
+    <Description>NoesisGUI D3D12 integration for DXSharp.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/atcarter714/DXSharp.Noesis</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>DirectX;D3D12;NoesisGUI;XAML;DXSharp</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="DXSharp.Core" />
+    <PackageReference Include="Noesis.GUI" />
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+</Project>

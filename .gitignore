@@ -1,0 +1,13 @@
+**/bin/
+**/obj/
+.vs/
+.idea/
+*.user
+*.suo
+artifacts/
+.packages-cache/
+.local/
+*.nupkg
+*.snupkg
+NoesisGUI-*SDK*.zip
+.env
