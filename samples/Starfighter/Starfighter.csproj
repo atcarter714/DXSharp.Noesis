@@ -8,7 +8,10 @@
   <ItemGroup>
     <ProjectReference Include="../../src/DXSharp.Noesis/DXSharp.Noesis.csproj" />
     <PackageReference Include="Noesis.App" />
+    <None Update="Ui/Avionics.xaml" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Ui/Cockpit.xaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Assets/cockpit.mesh" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Assets/cockpit-attribution.txt" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Scene.hlsl" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -1,0 +1,13 @@
+<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Width="512" Height="320"
+      TextElement.Foreground="#D9F0F2" TextElement.FontSize="18" Background="#081821">
+  <Grid Margin="16">
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <StackPanel><TextBlock Text="VANGUARD / AVIONICS" Foreground="#70E5D5" FontSize="24"/><TextBlock Text="FLIGHT SYSTEMS" Foreground="#879FAB"/></StackPanel>
+    <Grid Grid.Row="1" Margin="0,12"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+      <StackPanel><TextBlock Text="VELOCITY"/><TextBlock Text="{Binding SpeedText, FallbackValue='08.0 KM/S'}" FontSize="24"/><TextBlock Text="HULL" Margin="0,8,0,0"/><TextBlock Text="{Binding HullText, FallbackValue='100%'}"/><TextBlock Text="SHIELDS" Margin="0,8,0,0"/><TextBlock Text="{Binding ShieldText, FallbackValue='100%'}"/></StackPanel>
+      <StackPanel Grid.Column="1"><TextBlock Text="CONTACT"/><TextBlock Text="{Binding TargetName, FallbackValue='NO TARGET'}" TextWrapping="Wrap"/><TextBlock Text="{Binding TargetRange, FallbackValue='—'}"/><TextBlock Text="{Binding Status, FallbackValue='SYSTEMS NOMINAL'}" TextWrapping="Wrap" Margin="0,12,0,0"/></StackPanel>
+    </Grid>
+    <UniformGrid Grid.Row="2" Columns="3"><Button Content="CYCLE" Command="{Binding TargetCycleCommand}" Margin="2" Padding="6"/><Button Content="BOOST" Command="{Binding BoostCommand}" Margin="2" Padding="6"/><Button Content="AUDIO" Command="{Binding SoundCommand}" Margin="2" Padding="6"/></UniformGrid>
+  </Grid>
+</Grid>

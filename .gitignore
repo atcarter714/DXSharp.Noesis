@@ -11,3 +11,8 @@ artifacts/
 *.snupkg
 NoesisGUI-*SDK*.zip
 .env
+__pycache__/
+*.pyc
+samples/OrbitalCommand/Data/horizons.csv
+samples/OrbitalCommand/Data/horizons.provenance.json
+samples/Starfighter/Assets/cockpit.mesh

@@ -215,7 +215,7 @@
           </ItemsControl>
         </StackPanel>
         <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="0,0,16,0">
-          <TextBlock Text="LMB / COCKPIT CONTROL  ·  SPACE / FIRE" Foreground="#80AEB8" FontSize="7" HorizontalAlignment="Center" Margin="0,0,0,4"/>
+          <TextBlock Text="LMB / INTERACT OR AIM &amp; FIRE  ·  SPACE / BORESIGHT" Foreground="#80AEB8" FontSize="7" HorizontalAlignment="Center" Margin="0,0,0,4"/>
           <TextBlock Text="{Binding WeaponStateText}" Foreground="{StaticResource Amber}" FontSize="9" HorizontalAlignment="Center" Margin="0,0,0,5"/>
           <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
             <Button x:Name="FireButton" Content="✣  FIRE" Command="{Binding FireCommand}" Margin="0,0,7,0"/>
@@ -259,7 +259,7 @@
             <TextBlock Text="FLIGHT CONTROLS" Foreground="{StaticResource Ion}" FontSize="9" HorizontalAlignment="Center" Margin="0,0,0,8"/>
             <TextBlock Text="ARROWS  PITCH / YAW       Q / E  ROLL" Foreground="#D1E3E4" FontSize="9" HorizontalAlignment="Center"/>
             <TextBlock Text="W / S  THRUST             A / D  STRAFE" Foreground="#D1E3E4" FontSize="9" HorizontalAlignment="Center" Margin="0,5,0,0"/>
-            <TextBlock Text="R / F  LIFT                  RMB  FREE LOOK   ·   SPACE  FIRE" Foreground="#D1E3E4" FontSize="9" HorizontalAlignment="Center" Margin="0,5,0,0"/>
+            <TextBlock Text="R / F  LIFT      RMB  STEER      MMB  FREE LOOK      LMB  AIM / FIRE" Foreground="#D1E3E4" FontSize="9" HorizontalAlignment="Center" Margin="0,5,0,0"/>
             <TextBlock Text="SHIFT  AFTERBURNER           C  CHASE CAM" Foreground="#D1E3E4" FontSize="9" HorizontalAlignment="Center" Margin="0,5,0,0"/>
           </StackPanel>
         </Border>

@@ -14,6 +14,7 @@ public sealed class SceneRenderer : IDisposable {
     private readonly RootSignature _root;
     private readonly PipelineState _backgroundPipeline, _meshPipeline;
     private readonly Mesh _asteroid, _pulse, _cockpit, _sun, _planet, _ring, _fighter, _exhaust;
+    private readonly List<Mesh> _importedCockpit = [];
     private readonly uint[] _constants = new uint[52];
     private DepthTarget? _depth;
     public uint MeshDraws { get; private set; }
@@ -59,8 +60,16 @@ public sealed class SceneRenderer : IDisposable {
                                             try {
                                                 MeshData exhaustData = SceneGeometry.EngineFlare( );
                                                 _exhaust = device.CreateMesh<Vertex>( commands, exhaustData.Vertices, exhaustData.Indices );
-                                                try { commands.Close( ); queue.Wait( queue.Submit( commands ) ); }
-                                                catch { _exhaust.Dispose( ); throw; }
+                                                try {
+                                                    if ( Environment.GetEnvironmentVariable( "DXSHARP_COCKPIT_PREVIEW" ) == "1" ) {
+                                                        foreach ( MeshData chunk in CockpitMeshFile.Load( Path.Combine( AppContext.BaseDirectory, "Assets", "cockpit.mesh" ) ) )
+                                                            _importedCockpit.Add( device.CreateMesh<Vertex>( commands, chunk.Vertices, chunk.Indices ) );
+                                                    }
+                                                    commands.Close( ); queue.Wait( queue.Submit( commands ) );
+                                                } catch {
+                                                    foreach ( Mesh mesh in _importedCockpit ) mesh.Dispose( );
+                                                    _exhaust.Dispose( ); throw;
+                                                }
                                             } catch { _fighter.Dispose( ); throw; }
                                         } catch { _ring.Dispose( ); throw; }
                                     } catch { _planet.Dispose( ); throw; }
@@ -142,8 +151,10 @@ public sealed class SceneRenderer : IDisposable {
             DrawMesh( commands, _exhaust, game.Position, 1, 0, 4, new( 0.35f, 0.78f, 1.25f ), game.Boosting ? 3.1f : 1.8f );
             DrawMesh( commands, _fighter, game.Position, 1, 0, 4, Vector3.One, 1.0f );
         } else {
-            PutObject( Vector3.Zero, 1 ); PutDetail( 0, 2, 0, 0 ); Put( 28, Vector3.One, 1 );
-            commands.SetGraphicsConstants( _constants ); commands.DrawMesh( _cockpit ); MeshDraws++;
+            PutObject( game.Position, 1 ); PutDetail( 0, 2, 0, 0 ); Put( 28, Vector3.One, 1 );
+            commands.SetGraphicsConstants( _constants );
+            if ( _importedCockpit.Count == 0 ) { commands.DrawMesh( _cockpit ); MeshDraws++; }
+            else foreach ( Mesh mesh in _importedCockpit ) { commands.DrawMesh( mesh ); MeshDraws++; }
         }
         game.DrawCount = (int)MeshDraws;
 
@@ -159,6 +170,7 @@ public sealed class SceneRenderer : IDisposable {
     }
 
     public void Dispose( ) {
+        foreach ( Mesh mesh in _importedCockpit ) mesh.Dispose( );
         _depth?.Dispose( ); _exhaust.Dispose( ); _fighter.Dispose( ); _ring.Dispose( ); _planet.Dispose( ); _sun.Dispose( ); _cockpit.Dispose( );
         _pulse.Dispose( ); _asteroid.Dispose( ); _meshPipeline.Dispose( ); _backgroundPipeline.Dispose( ); _root.Dispose( );
     }

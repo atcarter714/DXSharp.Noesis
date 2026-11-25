@@ -98,9 +98,8 @@ internal static class Program {
         var view = overlay.View;
         var hitTest = new OverlayInput( view ) { Scale = scale };
         var keys = new HashSet<Forms.Keys>( );
-        // Left-click is reserved for Noesis cockpit controls. RMB temporarily captures
-        // the pointer for independent head-look; Space is the only keyboard trigger.
-        bool uiPointer = false, lookPointer = false, cursorHidden = false;
+        // Noesis controls take priority. RMB steers, MMB head-looks, scene LMB fires.
+        bool uiPointer = false, lookPointer = false, steering = false, firePointer = false, cursorHidden = false;
         N.MouseButton? uiButton = null;
         int lastMouseX = 0, lastMouseY = 0;
 
@@ -123,7 +122,7 @@ internal static class Program {
             for ( int i = 0; i < buffers.Length; i++ ) { buffers[i]?.Dispose( ); buffers[i] = null; }
         }
         void ClearInput( ) {
-            keys.Clear( ); uiPointer = lookPointer = false; uiButton = null;
+            keys.Clear( ); uiPointer = lookPointer = steering = firePointer = false; uiButton = null; game.ClearAim( );
             if ( cursorHidden ) { Forms.Cursor.Show( ); cursorHidden = false; }
             view.Content.Mouse.Capture( null );
         }
@@ -133,16 +132,19 @@ internal static class Program {
         window.MouseDown += ( _, e ) => {
             var button = MapButton( e.Button ); if ( button is null ) return;
             lastMouseX = e.X; lastMouseY = e.Y;
+            if ( uiPointer || lookPointer || firePointer ) return;
             if ( hitTest.BlocksSceneAt( e.X, e.Y ) ) {
                 uiPointer = true; uiButton = button;
                 view.MouseMove( e.X, e.Y ); view.MouseButtonDown( e.X, e.Y, button.Value );
                 window.Capture = true;
-            } else if ( e.Button == Forms.MouseButtons.Right && !hitTest.BlocksSceneAt( e.X, e.Y ) ) {
-                lookPointer = true; window.Capture = true;
+            } else if ( e.Button is Forms.MouseButtons.Right or Forms.MouseButtons.Middle ) {
+                steering = e.Button == Forms.MouseButtons.Right; lookPointer = true; window.Capture = true;
                 if ( !cursorHidden ) { Forms.Cursor.Hide( ); cursorHidden = true; }
                 Forms.Cursor.Position = window.PointToScreen( new System.Drawing.Point( window.ClientSize.Width / 2, window.ClientSize.Height / 2 ) );
-            } else if ( !uiPointer ) {
-                view.MouseMove( e.X, e.Y ); view.MouseButtonDown( e.X, e.Y, button.Value );
+            } else if ( e.Button == Forms.MouseButtons.Left ) {
+                firePointer = true; window.Capture = true;
+                game.AimAt( e.X, e.Y, window.ClientSize.Width, window.ClientSize.Height );
+                game.FireCommand.Execute( null );
             }
         };
         window.MouseMove += ( _, e ) => {
@@ -151,17 +153,21 @@ internal static class Program {
                 int centerX = window.ClientSize.Width / 2, centerY = window.ClientSize.Height / 2;
                 int dx = e.X - centerX, dy = e.Y - centerY;
                 if ( dx != 0 || dy != 0 ) {
-                    game.Look( dx, dy );
+                    if ( steering ) game.Steer( dx, dy ); else game.Look( dx, dy );
                     // Re-centering keeps the pilot's aim free of desktop-edge limits.
                     Forms.Cursor.Position = window.PointToScreen( new System.Drawing.Point( centerX, centerY ) );
                 }
-            } else view.MouseMove( e.X, e.Y );
+            } else if ( firePointer ) game.AimAt( e.X, e.Y, window.ClientSize.Width, window.ClientSize.Height );
+            else view.MouseMove( e.X, e.Y );
             lastMouseX = e.X; lastMouseY = e.Y;
         };
         window.MouseUp += ( _, e ) => {
-            if ( MapButton( e.Button ) is { } button && uiPointer ) view.MouseButtonUp( e.X, e.Y, button );
-            if ( e.Button == Forms.MouseButtons.Right ) {
-                lookPointer = false;
+            if ( MapButton( e.Button ) is { } button && uiPointer && uiButton == button ) {
+                view.MouseButtonUp( e.X, e.Y, button ); uiPointer = false; uiButton = null;
+            }
+            if ( e.Button == Forms.MouseButtons.Left && firePointer ) { firePointer = false; game.ClearAim( ); }
+            if ( lookPointer && e.Button == (steering ? Forms.MouseButtons.Right : Forms.MouseButtons.Middle) ) {
+                lookPointer = steering = false;
                 if ( cursorHidden ) { Forms.Cursor.Show( ); cursorHidden = false; }
             }
             if ( Forms.Control.MouseButtons == Forms.MouseButtons.None ) {
@@ -173,9 +179,9 @@ internal static class Program {
             else game.AdjustZoom( e.Delta );
         };
         window.MouseCaptureChanged += ( _, _ ) => {
-            if ( !window.Capture && (uiPointer || lookPointer) ) {
+            if ( !window.Capture && (uiPointer || lookPointer || firePointer) ) {
                 if ( uiPointer && uiButton is { } button ) view.MouseButtonUp( lastMouseX, lastMouseY, button );
-                uiPointer = lookPointer = false; uiButton = null;
+                uiPointer = lookPointer = steering = firePointer = false; uiButton = null; game.ClearAim( );
                 if ( cursorHidden ) { Forms.Cursor.Show( ); cursorHidden = false; }
             }
         };
@@ -221,6 +227,7 @@ internal static class Program {
                 slot.Begin( );
                 double now = clock.Elapsed.TotalSeconds;
                 double dt = smoke ? 1.0 / 60 : Math.Min( now - previous, 0.05 ); previous = now;
+                if ( firePointer ) game.AimAt( lastMouseX, lastMouseY, size.Width, size.Height );
                 game.Tick( dt,
                     keys.Contains( Forms.Keys.Left ), keys.Contains( Forms.Keys.Right ),
                     keys.Contains( Forms.Keys.Up ), keys.Contains( Forms.Keys.Down ),
@@ -229,7 +236,7 @@ internal static class Program {
                     keys.Contains( Forms.Keys.A ), keys.Contains( Forms.Keys.D ),
                     keys.Contains( Forms.Keys.R ), keys.Contains( Forms.Keys.F ),
                     keys.Contains( Forms.Keys.ShiftKey ) || keys.Contains( Forms.Keys.LShiftKey ) || keys.Contains( Forms.Keys.RShiftKey ),
-                    keys.Contains( Forms.Keys.Space ) );
+                    keys.Contains( Forms.Keys.Space ) || firePointer );
                 audio?.SetFlightState( game.Speed, game.Boosting, game.SoundEnabled );
                 view.Update( now );
 

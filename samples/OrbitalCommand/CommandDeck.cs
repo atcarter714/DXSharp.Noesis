@@ -64,6 +64,40 @@ public sealed class LogEntry {
 
 public sealed class CommandDeck : Observable {
     public Simulation Simulation { get; } = new( );
+    public ObservableCollection<PlanetMarker> PlanetMarkers { get; } = [];
+    private IReadOnlyList<PlanetState> _planetStates = [];
+    private bool _solarMap, _innerSolarMap = true;
+    private string _solarStatus = "No Horizons cache. Run eng/assets/fetch-horizons.py and rebuild.";
+    public string SolarStatus { get => _solarStatus; private set => Set( ref _solarStatus, value ); }
+    public N.Visibility SolarMapVisibility => _solarMap ? N.Visibility.Visible : N.Visibility.Collapsed;
+    public string SolarMapButton => _solarMap ? "LOCAL" : "SOL";
+    public string SolarScaleButton => _innerSolarMap ? "OUTER SYSTEM" : "INNER SYSTEM";
+    public string SolarScaleText => _innerSolarMap ? "Linear scale: ±1.8 AU" : "Linear scale: ±32 AU";
+    public ICommand SolarMapCommand { get; }
+    public ICommand SolarScaleCommand { get; }
+    private void LoadSolarSnapshot( ) {
+        try {
+            _planetStates = SolarSystemSnapshot.Load( Path.Combine( AppContext.BaseDirectory, "Data", "horizons.csv" ) );
+            SolarStatus = FormattableString.Invariant( $"NASA/JPL Horizons · JD {_planetStates[0].JulianDateTdb:F5} TDB · heliocentric ecliptic XY" );
+            UpdatePlanetMarkers( );
+        } catch ( Exception e ) when ( e is IOException or InvalidDataException or UnauthorizedAccessException or FormatException or OverflowException ) {
+            _planetStates = []; PlanetMarkers.Clear( );
+            SolarStatus = "Horizons cache unavailable. Run eng/assets/fetch-horizons.py and rebuild. " + e.Message;
+        }
+    }
+    private void UpdatePlanetMarkers( ) {
+        PlanetMarkers.Clear( );
+        if ( _planetStates.Count == 0 ) return;
+        double extent = _innerSolarMap ? 1.8 : 32.0;
+        const double radius = 250;
+        foreach ( PlanetState state in _planetStates ) {
+            if ( Math.Abs( state.X ) > extent || Math.Abs( state.Y ) > extent ) continue;
+            double distance = Math.Sqrt( state.X * state.X + state.Y * state.Y + state.Z * state.Z );
+            PlanetMarkers.Add( new( state.Name, (float)(280 + state.X / extent * radius - 4),
+                (float)(280 - state.Y / extent * radius - 4), FormattableString.Invariant( $"{distance:F2} AU" ) ) );
+        }
+    }
+
     public OrbitCamera Camera { get; } = new( );
     public ObservableCollection<ShipViewModel> Ships { get; } = [];
     public ObservableCollection<LogEntry> Events { get; } = [];
@@ -113,6 +147,15 @@ public sealed class CommandDeck : Observable {
     public uint LastBatches { get; private set; }
 
     public CommandDeck( ) {
+        SolarMapCommand = new ActionCommand( () => {
+            _solarMap = !_solarMap;
+            if ( _solarMap ) LoadSolarSnapshot( );
+            Notify( nameof(SolarMapVisibility) ); Notify( nameof(SolarMapButton) );
+        } );
+        SolarScaleCommand = new ActionCommand( () => {
+            _innerSolarMap = !_innerSolarMap; UpdatePlanetMarkers( );
+            Notify( nameof(SolarScaleButton) ); Notify( nameof(SolarScaleText) );
+        } );
         foreach ( var ship in Simulation.Vessels ) Ships.Add( new( ship, Select ) );
         _selected = Ships[0];
         PauseCommand = new ActionCommand( () => Paused = !Paused );

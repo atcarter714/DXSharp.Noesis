@@ -9,6 +9,7 @@
     <ProjectReference Include="../../src/DXSharp.Noesis/DXSharp.Noesis.csproj" />
     <PackageReference Include="Noesis.App" />
     <None Update="Ui/Dashboard.xaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Data/horizons.csv" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Scene.hlsl" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

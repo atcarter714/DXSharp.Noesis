@@ -226,8 +226,33 @@ public sealed class StarfighterGame : ObservableObject {
         // RMB head-look is camera-only. Keep the ship attitude and weapon boresight
         // unchanged, and limit the pilot's neck travel to a plausible field of view.
         _lookYaw = Math.Clamp( _lookYaw + dx * 0.0029f, -1.72f, 1.72f );
-        _lookPitch = Math.Clamp( _lookPitch - dy * 0.0029f, -1.12f, 1.12f );
+        _lookPitch = Math.Clamp( _lookPitch + dy * 0.0029f, -1.12f, 1.12f );
     }
+
+    /// <summary>Steer the airframe around its local axes; independent head-look remains available.</summary>
+    public void Steer( float dx, float dy ) {
+        if ( Paused || GameOver || !float.IsFinite( dx ) || !float.IsFinite( dy ) ) return;
+        const float sensitivity = 0.0029f;
+        float yaw = Math.Clamp( dx * sensitivity, -0.35f, 0.35f );
+        float pitch = Math.Clamp( dy * sensitivity, -0.35f, 0.35f );
+        _orientation = Quaternion.Normalize( _orientation * Quaternion.CreateFromYawPitchRoll( yaw, pitch, 0 ) );
+        CenterLook( );
+    }
+
+    // Pointer aim is limited to a small gimbal cone around the airframe. Space fires
+    // along boresight; clicking the scene aims the twin guns at the pointer ray.
+    private Vector3? _aimDirection;
+    public void AimAt( float x, float y, int width, int height ) {
+        if ( width <= 0 || height <= 0 || !float.IsFinite( x ) || !float.IsFinite( y ) ) return;
+        float nx = 2 * x / width - 1, ny = 1 - 2 * y / height;
+        Vector3 ray = Vector3.Normalize( CameraForward + CameraRight * (nx * Fov * width / height) + CameraUp * (ny * Fov) );
+        const float maxTangent = 0.2679492f; // 15 degrees
+        float z = Math.Max( 0.001f, Vector3.Dot( ray, Forward ) );
+        Vector2 tangent = new( Vector3.Dot( ray, Right ) / z, Vector3.Dot( ray, Up ) / z );
+        if ( tangent.LengthSquared( ) > maxTangent * maxTangent ) tangent = Vector2.Normalize( tangent ) * maxTangent;
+        _aimDirection = Vector3.Normalize( Forward + Right * tangent.X + Up * tangent.Y );
+    }
+    public void ClearAim( ) => _aimDirection = null;
 
     public void CenterLook( ) { _lookYaw = 0; _lookPitch = 0; }
     public void AdjustZoom( int wheelDelta ) => _fov = Math.Clamp( _fov * MathF.Exp( -wheelDelta * 0.00055f ), 0.34f, 0.78f );
@@ -246,7 +271,7 @@ public sealed class StarfighterGame : ObservableObject {
         float yawInput = (yawRight ? 1 : 0) - (yawLeft ? 1 : 0);
         float pitchInput = (pitchUp ? 1 : 0) - (pitchDown ? 1 : 0);
         float rollInput = (rollRight ? 1 : 0) - (rollLeft ? 1 : 0);
-        _angularVelocity += new Vector3( pitchInput * 1.8f, yawInput * 1.45f, rollInput * 2.25f ) * dt;
+        _angularVelocity += new Vector3( -pitchInput * 1.8f, yawInput * 1.45f, -rollInput * 2.25f ) * dt;
         _angularVelocity *= MathF.Exp( -2.35f * dt );
         var attitudeDelta = Quaternion.CreateFromYawPitchRoll( _angularVelocity.Y * dt, _angularVelocity.X * dt, _angularVelocity.Z * dt );
         _orientation = Quaternion.Normalize( _orientation * attitudeDelta );
@@ -351,14 +376,16 @@ public sealed class StarfighterGame : ObservableObject {
 
     private void Shoot( ) {
         Vector3 forward = Forward, right = Right, up = Up;
+        Vector3 aim = _aimDirection ?? forward;
+        Vector3 convergence = _position + forward * 5.18f + aim * 70f;
         // Match the actual twin cannon rails on the external fighter mesh. Muzzles sit
         // beyond the forward canopy bow, so bolts cannot originate inside the cockpit.
         const float muzzleForward = 5.18f;
         const float muzzleOffset = 1.07f;
         _bolts.Add( new( ) { Position = _position + forward * muzzleForward - right * muzzleOffset + up * 0.01f,
-            Velocity = _velocity + forward * 155, Age = 0, Side = -1 } );
+            Velocity = _velocity + Vector3.Normalize( convergence - (_position + forward * muzzleForward - right * muzzleOffset + up * 0.01f) ) * 155, Age = 0, Side = -1 } );
         _bolts.Add( new( ) { Position = _position + forward * muzzleForward + right * muzzleOffset + up * 0.01f,
-            Velocity = _velocity + forward * 155, Age = 0, Side = 1 } );
+            Velocity = _velocity + Vector3.Normalize( convergence - (_position + forward * muzzleForward + right * muzzleOffset + up * 0.01f) ) * 155, Age = 0, Side = 1 } );
         _heat = Math.Min( 100, _heat + 7.1f ); _shotClock = 0.115f;
         _cameraShake = Math.Max( _cameraShake, 0.012f );
         Sound( SoundCue.Cannon );
@@ -556,7 +583,7 @@ public sealed class StarfighterGame : ObservableObject {
         _time = 0; _readoutClock = 0.08; _spawnClock = 1.5f; _shotClock = _heat = 0; _shieldDelay = 0; _damageFlash = _cameraShake = 0; _boostEnergy = 100; _environmentImpactDelay = 0;
         _combo = _comboTimer = 0; _hull = _shield = 100; _score = 0; _kills = 0; _wave = 1;
         _overheated = _boostToggle = _boosting = _paused = _gameOver = false;
-        _lookYaw = _lookPitch = 0;
+        _lookYaw = _lookPitch = 0; ClearAim( );
         ChaseView = false;
         PauseVisibility = GameOverVisibility = DamageVisibility = N.Visibility.Collapsed;
         TargetVisibility = N.Visibility.Collapsed;

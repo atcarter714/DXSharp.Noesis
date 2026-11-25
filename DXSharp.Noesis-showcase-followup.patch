@@ -1,0 +1,922 @@
+diff --git a/.gitignore b/.gitignore
+index 46dc85b..8a3ca39 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -11,3 +11,8 @@ artifacts/
+ *.snupkg
+ NoesisGUI-*SDK*.zip
+ .env
++__pycache__/
++*.pyc
++samples/OrbitalCommand/Data/horizons.csv
++samples/OrbitalCommand/Data/horizons.provenance.json
++samples/Starfighter/Assets/cockpit.mesh
+diff --git a/docs/showcase-followup.md b/docs/showcase-followup.md
+new file mode 100644
+index 0000000..40e60d7
+--- /dev/null
++++ b/docs/showcase-followup.md
+@@ -0,0 +1,45 @@
++# Showcase follow-up: flight, ephemerides, asset and Studio foundation
++
++This change is based on the starter repository; the Windows build and GPU test remain required. No proprietary SDK contents are included. The original atmosphere shading is unchanged.
++
++## Flight controls
++
++RMB drag in the scene steers ship attitude. MMB drag is independent head-look. LMB on a UI control is routed to Noesis; LMB on the scene aims and fires with a 15-degree gun gimbal. Space fires along boresight when no pointer aim is active. Q/E bank left/right; arrow keys yaw and pitch, WASD translate, R/F lift, Shift boost, C chase view. Keep RMB held and use Space to steer and fire together. The cursor indicates the requested pointer aim, not a prediction of the clamped ballistic solution; a lead/gimbal reticle is a subsequent improvement.
++
++The cockpit is transformed ship-local -> world -> view. Hardware homogeneous clipping replaces invalid near-plane vertex rejection. The distant procedural star field is direction-only. Orbital Command header is content-sized and its value elements have regression checks.
++
++## JPL Horizons snapshot
++
++From the repository root, with Python 3 installed:
++
++```powershell
++python eng/assets/fetch-horizons.py --date 2026-11-25
++```
++
++Build OrbitalCommand and click SOL; LOCAL returns to the original scene. The inner/outer toggle uses two linear AU scales. The view shows the ecliptic XY projection of geometric positions at the explicit TDB epoch, with symbolic marker sizes. Velocity and Z are retained in the cache but not yet used for motion or 3D rendering. No network I/O occurs in the frame loop or normal CI. Raw API responses and signatures are stored in a separate provenance JSON. If data is absent or invalid the panel shows an error, not fictional fallback data. The existing local-orbit game remains separate. The Horizons endpoint must still be exercised on a network-enabled machine.
++
++Reference: https://ssd-api.jpl.nasa.gov/doc/horizons.html
++
++## Cockpit asset preview
++
++The supplied Sketchfab asset is CC-BY-4.0, author Mixmamo.studio. Preserve `samples/Starfighter/Assets/cockpit-attribution.txt` with the model. The source glTF has 1,586 mesh primitives and 188,958 vertices. The converter flattens node transforms, transforms normals, handles mirrored winding, uses material base-color factors and chunks into 16-bit meshes. This is not a PBR importer: textures, UVs, specular/roughness and material lighting are not preserved. The source contains peripheral geometry and requires authoring/calibration; it is not proven to be a closed flight-ready cabin.
++
++```powershell
++python -m pip install numpy trimesh
++python eng/assets/prepare-cockpit.py C:/path/to/scene.gltf --eye -0.55 0.96 -4.8 --scale 2
++$env:DXSHARP_COCKPIT_PREVIEW = '1'
++dotnet run --project samples/Starfighter -c Release
++Remove-Item Env:DXSHARP_COCKPIT_PREVIEW
++```
++
++The eye/scale are provisional, not verified in the cockpit. The optional binary is ignored by git and copied to the output when present. With no preview environment variable the original procedural cockpit is used. If preview is explicitly enabled without a valid mesh it fails clearly. Iterate in Houdini/Blender/Maya: remove authoring guides, set a named pilot eye, close hull/roof, add transparent glazing with proper material pass, and author panel anchor transforms. Commit only licensed, reviewed source/derived assets with provenance.
++
++## Real sky
++
++NASA SVS Deep Star Maps 2020 (https://svs.gsfc.nasa.gov/4851/) supplies a linear half-float EXR celestial map, including bright stars; use the 4096x2048 or 8192x4096 full star map. Credit NASA Goddard Scientific Visualization Studio / Ernie Wright and review source/catalog conditions before redistribution. Convert to a mipmapped HDR texture (e.g. BC6H DDS) with an offline asset step. Map world direction to ICRF RA/declination, account for RA increasing to the left and any ecliptic-to-equatorial transform; sample without translational offsets. The texture path and skybox upload are not implemented in this change; the procedural shader remains the fallback.
++
++## Studio and world UI
++
++The standalone `.noesis` files use the actual CLR namespaces, not the assembly names. Open the sample project descriptors in Noesis Studio 4.0.1. For Starfighter, open `Avionics.xaml` as an authoring prototype; it contains fallback data and binds to the existing game's commands. It is not yet rendered in the cockpit. Verify runtime theme/font resources and design-time binding behavior in Studio. In the supplied native SDK, `Include/NsGui/Studio.h` declares `Noesis::Studio::Create(const char*, const Options&)`; `StudioOptions.h` provides XAML/texture/font factories, assembly registration, file event callbacks, save-state and exit, and parent window. The native distribution includes NoesisEditor.dll. The managed archive contains documentation/sample sources, not runtime assemblies; do not assume a matching managed Studio entry point. Check the actual restored Noesis.GUI assembly surface and editor/runtime build compatibility before adding an optional managed host or C ABI bridge.
++
++WorldPanelGeometry now provides ray-to-physical-pixel picking for a finite planar surface, with a regression test. The next implementation is a separate Noesis view per MFD: create a shader-readable color target and matching stencil, record Noesis offscreen and onscreen passes into the panel RTV, transition to pixel-shader resource state, sample on the ship-local panel geometry, and route pointer capture/press/release using the same UV transform. Use nearest-hit selection, cockpit occlusion, and explicit resource-state/frame ownership. Keep screen HUD rendering independent. Do not share the current overlay stencil between concurrently recorded panels. The render-target sampling and input routing to the MFD are not yet implemented.
+diff --git a/eng/assets/fetch-horizons.py b/eng/assets/fetch-horizons.py
+new file mode 100644
+index 0000000..ea13e5a
+--- /dev/null
++++ b/eng/assets/fetch-horizons.py
+@@ -0,0 +1,73 @@
++#!/usr/bin/env python3
++"""Fetch a single, explicitly TDB-dated geometric heliocentric state for each planet."""
++import argparse
++import csv
++import datetime as dt
++import io
++import json
++import math
++import pathlib
++import urllib.parse
++import urllib.request
++
++BODIES = [(199, 'Mercury'), (299, 'Venus'), (399, 'Earth'), (499, 'Mars'),
++          (599, 'Jupiter'), (699, 'Saturn'), (799, 'Uranus'), (899, 'Neptune')]
++API = 'https://ssd.jpl.nasa.gov/api/horizons.api'
++ROOT = pathlib.Path(__file__).resolve().parents[2]
++
++
++def fetch(body, date):
++    # A calendar date in Horizons vector tables is TDB, not UTC.
++    params = dict(format='json', COMMAND=f"'{body}'", CENTER="'500@10'",
++                  MAKE_EPHEM='YES', OBJ_DATA='NO', EPHEM_TYPE='VECTORS',
++                  TLIST=f"'{date} 00:00:00'", TLIST_TYPE='CAL',
++                  REF_SYSTEM='ICRF', REF_PLANE='ECLIPTIC', OUT_UNITS='AU-D',
++                  VEC_CORR='NONE', VEC_TABLE='2', CSV_FORMAT='YES', VEC_LABELS='NO',
++                  TIME_TYPE='TDB')
++    with urllib.request.urlopen(API + '?' + urllib.parse.urlencode(params, quote_via=urllib.parse.quote), timeout=60) as response:
++        data = json.load(response)
++    if data.get('error') or not isinstance(data.get('result'), str):
++        raise RuntimeError(f"Horizons {body}: {data.get('error', 'missing result')}")
++    result = data['result']
++    if '$$SOE' not in result or '$$EOE' not in result:
++        raise RuntimeError(f'Horizons {body}: no ephemeris table: {result[:500]}')
++    table = result.split('$$SOE', 1)[1].split('$$EOE', 1)[0].strip()
++    rows = list(csv.reader(io.StringIO(table)))
++    if len(rows) != 1 or len(rows[0]) < 8:
++        raise RuntimeError(f'Horizons {body}: expected one vector row')
++    row = rows[0]
++    numbers = [float(row[0]), *map(float, row[2:8])]
++    if not all(math.isfinite(n) for n in numbers):
++        raise ValueError('Non-finite state vector')
++    return numbers, data.get('signature', {}), result
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument('--date', default=dt.datetime.now(dt.timezone.utc).date().isoformat(),
++                        type=lambda value: dt.date.fromisoformat(value).isoformat())
++    parser.add_argument('--output', type=pathlib.Path,
++                        default=ROOT / 'samples/OrbitalCommand/Data/horizons.csv')
++    args = parser.parse_args()
++    rows = []
++    signatures = {}
++    raw = {}
++    for body, name in BODIES:  # JPL requests should be sequential.
++        values, signature, result = fetch(body, args.date)
++        rows.append([body, name, *values]); signatures[str(body)] = signature; raw[str(body)] = result
++        print(f'{name}: {values[1:4]} AU')
++    if len({row[2] for row in rows}) != 1:
++        raise RuntimeError('Planet epochs do not agree')
++    args.output.parent.mkdir(parents=True, exist_ok=True)
++    tmp = args.output.with_suffix('.tmp')
++    with tmp.open('w', newline='', encoding='utf-8') as f:
++        writer = csv.writer(f); writer.writerow(['id','name','jd_tdb','x_au','y_au','z_au','vx_au_day','vy_au_day','vz_au_day']); writer.writerows(rows)
++    # Keep the provenance alongside the cache; commit neither until reviewed.
++    args.output.with_suffix('.provenance.json').write_text(json.dumps(dict(source=API,
++        date_tdb=args.date, center='500@10', frame='ICRF / J2000 ecliptic', units='AU-D',
++        correction='NONE', signatures=signatures, raw=raw), indent=2), encoding='utf-8')
++    tmp.replace(args.output)
++    print(args.output)
++
++if __name__ == '__main__':
++    main()
+diff --git a/eng/assets/prepare-cockpit.py b/eng/assets/prepare-cockpit.py
+new file mode 100644
+index 0000000..12d0521
+--- /dev/null
++++ b/eng/assets/prepare-cockpit.py
+@@ -0,0 +1,74 @@
++#!/usr/bin/env python3
++"""Bake the supplied cockpit glTF into DXSharp's current POSITION/NORMAL/COLOR format.
++Requires numpy and trimesh. The original asset remains unchanged. This is a preview
++conversion, not a full PBR asset importer. A calibrated eye position is required.
++"""
++import argparse
++import pathlib
++import struct
++import numpy as np
++import trimesh
++
++ROOT = pathlib.Path(__file__).resolve().parents[2]
++
++
++def main():
++    p = argparse.ArgumentParser(description=__doc__)
++    p.add_argument('gltf', type=pathlib.Path)
++    p.add_argument('--eye', nargs=3, type=float, required=True, metavar=('X','Y','Z'),
++                   help='pilot eye in source glTF world coordinates')
++    p.add_argument('--forward', choices=['+z','-z'], default='-z')
++    p.add_argument('--scale', type=float, default=1.0)
++    p.add_argument('--output', type=pathlib.Path, default=ROOT/'samples/Starfighter/Assets/cockpit.mesh')
++    a = p.parse_args()
++    if not np.isfinite(a.eye).all() or not np.isfinite(a.scale) or a.scale <= 0:
++        p.error('eye and scale must be finite; scale must be positive')
++    scene = trimesh.load(a.gltf, force='scene', process=False)
++    # Flip Z for the usual glTF -Z forward authoring convention; adjust winding.
++    basis = np.diag([1., 1., -1. if a.forward == '-z' else 1.])
++    chunks = []
++    vertices, indices, count = [], [], 0
++    def flush():
++        nonlocal vertices, indices, count
++        if count:
++            chunks.append((np.concatenate(vertices).astype('<f4'), np.concatenate(indices).astype('<u2')))
++        vertices, indices, count = [], [], 0
++    for node in sorted(scene.graph.nodes_geometry):
++        transform, geometry = scene.graph[node]
++        mesh = scene.geometry[geometry]
++        if not len(mesh.faces): continue
++        pos = ((trimesh.transform_points(mesh.vertices, transform) - np.asarray(a.eye)) @ basis.T) * a.scale
++        linear = basis @ transform[:3,:3]
++        normal = mesh.vertex_normals @ np.linalg.inv(linear)
++        length = np.linalg.norm(normal, axis=1)
++        normal[length < 1e-12] = (0,1,0)
++        normal /= np.linalg.norm(normal, axis=1)[:,None]
++        material = getattr(mesh.visual, 'material', None)
++        color = getattr(material, 'baseColorFactor', None)
++        if color is None: color = [140,140,140,255]
++        raw_color = np.asarray(color)[:3]
++        color = raw_color.astype(np.float64)
++        if np.issubdtype(raw_color.dtype, np.integer) or color.max() > 1: color /= 255.
++        color = np.clip(color, 0., 1.)
++        faces = np.asarray(mesh.faces).copy()
++        if np.linalg.det(linear) < 0: faces = faces[:,[0,2,1]]
++        # Split by triangle ranges, compacting each chunk's local vertex references.
++        for start in range(0, len(faces), 20000):
++            face = faces[start:start+20000]
++            used, remapped = np.unique(face, return_inverse=True)
++            if count + len(used) > 65535: flush()
++            data = np.column_stack((pos[used], normal[used], np.broadcast_to(color,(len(used),3))))
++            if not np.isfinite(data).all(): raise ValueError(f'Nonfinite mesh: {node}')
++            vertices.append(data); indices.append(remapped.reshape(-1)+count); count += len(used)
++    flush()
++    if not chunks: raise ValueError('No triangle geometry found')
++    a.output.parent.mkdir(parents=True, exist_ok=True)
++    tmp = a.output.with_suffix('.tmp')
++    with tmp.open('wb') as f:
++        f.write(b'DXCM'); f.write(struct.pack('<II',1,len(chunks)))
++        for verts, inds in chunks:
++            f.write(struct.pack('<II',len(verts),len(inds))); f.write(verts.tobytes()); f.write(inds.tobytes())
++    tmp.replace(a.output)
++    print(f'{a.output}: {len(chunks)} chunks, {sum(len(v) for v,i in chunks)} vertices, {sum(len(i)//3 for v,i in chunks)} triangles')
++
++if __name__ == '__main__': main()
+diff --git a/samples/OrbitalCommand/CommandDeck.cs b/samples/OrbitalCommand/CommandDeck.cs
+index 2fabbc9..54f6c0b 100644
+--- a/samples/OrbitalCommand/CommandDeck.cs
++++ b/samples/OrbitalCommand/CommandDeck.cs
+@@ -64,6 +64,40 @@ public sealed class LogEntry {
+ 
+ public sealed class CommandDeck : Observable {
+     public Simulation Simulation { get; } = new( );
++    public ObservableCollection<PlanetMarker> PlanetMarkers { get; } = [];
++    private IReadOnlyList<PlanetState> _planetStates = [];
++    private bool _solarMap, _innerSolarMap = true;
++    private string _solarStatus = "No Horizons cache. Run eng/assets/fetch-horizons.py and rebuild.";
++    public string SolarStatus { get => _solarStatus; private set => Set( ref _solarStatus, value ); }
++    public N.Visibility SolarMapVisibility => _solarMap ? N.Visibility.Visible : N.Visibility.Collapsed;
++    public string SolarMapButton => _solarMap ? "LOCAL" : "SOL";
++    public string SolarScaleButton => _innerSolarMap ? "OUTER SYSTEM" : "INNER SYSTEM";
++    public string SolarScaleText => _innerSolarMap ? "Linear scale: ±1.8 AU" : "Linear scale: ±32 AU";
++    public ICommand SolarMapCommand { get; }
++    public ICommand SolarScaleCommand { get; }
++    private void LoadSolarSnapshot( ) {
++        try {
++            _planetStates = SolarSystemSnapshot.Load( Path.Combine( AppContext.BaseDirectory, "Data", "horizons.csv" ) );
++            SolarStatus = FormattableString.Invariant( $"NASA/JPL Horizons · JD {_planetStates[0].JulianDateTdb:F5} TDB · heliocentric ecliptic XY" );
++            UpdatePlanetMarkers( );
++        } catch ( Exception e ) when ( e is IOException or InvalidDataException or UnauthorizedAccessException or FormatException or OverflowException ) {
++            _planetStates = []; PlanetMarkers.Clear( );
++            SolarStatus = "Horizons cache unavailable. Run eng/assets/fetch-horizons.py and rebuild. " + e.Message;
++        }
++    }
++    private void UpdatePlanetMarkers( ) {
++        PlanetMarkers.Clear( );
++        if ( _planetStates.Count == 0 ) return;
++        double extent = _innerSolarMap ? 1.8 : 32.0;
++        const double radius = 250;
++        foreach ( PlanetState state in _planetStates ) {
++            if ( Math.Abs( state.X ) > extent || Math.Abs( state.Y ) > extent ) continue;
++            double distance = Math.Sqrt( state.X * state.X + state.Y * state.Y + state.Z * state.Z );
++            PlanetMarkers.Add( new( state.Name, (float)(280 + state.X / extent * radius - 4),
++                (float)(280 - state.Y / extent * radius - 4), FormattableString.Invariant( $"{distance:F2} AU" ) ) );
++        }
++    }
++
+     public OrbitCamera Camera { get; } = new( );
+     public ObservableCollection<ShipViewModel> Ships { get; } = [];
+     public ObservableCollection<LogEntry> Events { get; } = [];
+@@ -113,6 +147,15 @@ public sealed class CommandDeck : Observable {
+     public uint LastBatches { get; private set; }
+ 
+     public CommandDeck( ) {
++        SolarMapCommand = new ActionCommand( () => {
++            _solarMap = !_solarMap;
++            if ( _solarMap ) LoadSolarSnapshot( );
++            Notify( nameof(SolarMapVisibility) ); Notify( nameof(SolarMapButton) );
++        } );
++        SolarScaleCommand = new ActionCommand( () => {
++            _innerSolarMap = !_innerSolarMap; UpdatePlanetMarkers( );
++            Notify( nameof(SolarScaleButton) ); Notify( nameof(SolarScaleText) );
++        } );
+         foreach ( var ship in Simulation.Vessels ) Ships.Add( new( ship, Select ) );
+         _selected = Ships[0];
+         PauseCommand = new ActionCommand( () => Paused = !Paused );
+diff --git a/samples/OrbitalCommand/OrbitalCommand.csproj b/samples/OrbitalCommand/OrbitalCommand.csproj
+index 353d6c7..139a80c 100644
+--- a/samples/OrbitalCommand/OrbitalCommand.csproj
++++ b/samples/OrbitalCommand/OrbitalCommand.csproj
+@@ -9,6 +9,7 @@
+     <ProjectReference Include="../../src/DXSharp.Noesis/DXSharp.Noesis.csproj" />
+     <PackageReference Include="Noesis.App" />
+     <None Update="Ui/Dashboard.xaml" CopyToOutputDirectory="PreserveNewest" />
++    <None Update="Data/horizons.csv" CopyToOutputDirectory="PreserveNewest" />
+     <None Update="Scene.hlsl" CopyToOutputDirectory="PreserveNewest" />
+   </ItemGroup>
+ </Project>
+diff --git a/samples/OrbitalCommand/SolarSystemSnapshot.cs b/samples/OrbitalCommand/SolarSystemSnapshot.cs
+new file mode 100644
+index 0000000..05998eb
+--- /dev/null
++++ b/samples/OrbitalCommand/SolarSystemSnapshot.cs
+@@ -0,0 +1,34 @@
++using System.Globalization;
++
++namespace OrbitalCommand;
++
++public sealed record PlanetState( int Id, string Name, double JulianDateTdb, double X, double Y, double Z,
++                                  double Vx, double Vy, double Vz );
++
++/// <summary>Geometric heliocentric J2000 ecliptic state vectors, stored in AU and AU/day.</summary>
++public static class SolarSystemSnapshot {
++    private static readonly (int Id, string Name)[] Expected = [
++        (199, "Mercury"), (299, "Venus"), (399, "Earth"), (499, "Mars"),
++        (599, "Jupiter"), (699, "Saturn"), (799, "Uranus"), (899, "Neptune") ];
++    public static IReadOnlyList<PlanetState> Load( string path ) {
++        using var stream = File.OpenText( path );
++        if ( stream.ReadLine( ) != "id,name,jd_tdb,x_au,y_au,z_au,vx_au_day,vy_au_day,vz_au_day" )
++            throw new InvalidDataException( "Unexpected Horizons cache schema." );
++        var states = new List<PlanetState>( );
++        string? line;
++        while ( (line = stream.ReadLine( )) != null ) {
++            string[] fields = line.Split( ',' );
++            if ( fields.Length != 9 || !int.TryParse( fields[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int id ) ||
++                 !Expected.Contains( (id, fields[1]) ) ) throw new InvalidDataException( "Invalid Horizons body." );
++            double[] values = fields.Skip( 2 ).Select( field => double.Parse( field, CultureInfo.InvariantCulture ) ).ToArray( );
++            if ( values.Any( value => !double.IsFinite( value ) ) ) throw new InvalidDataException( "Invalid Horizons state." );
++            states.Add( new( id, fields[1], values[0], values[1], values[2], values[3], values[4], values[5], values[6] ) );
++        }
++        if ( states.Count != Expected.Length || states.Select( s => s.Id ).Distinct( ).Count( ) != Expected.Length ||
++             states.Select( s => s.JulianDateTdb ).Distinct( ).Count( ) != 1 )
++            throw new InvalidDataException( "Horizons cache must contain all eight planets at one epoch." );
++        return states.OrderBy( s => s.Id ).ToArray( );
++    }
++}
++
++public sealed record PlanetMarker( string Name, float Left, float Top, string Distance );
+diff --git a/samples/OrbitalCommand/Ui/Dashboard.xaml b/samples/OrbitalCommand/Ui/Dashboard.xaml
+index 7a49d11..be6e348 100644
+--- a/samples/OrbitalCommand/Ui/Dashboard.xaml
++++ b/samples/OrbitalCommand/Ui/Dashboard.xaml
+@@ -84,19 +84,20 @@
+   </ItemsControl>
+ 
+   <Grid Margin="22">
+-    <Grid.RowDefinitions><RowDefinition Height="80"/><RowDefinition Height="*"/><RowDefinition Height="202"/><RowDefinition Height="27"/></Grid.RowDefinitions>
++    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="202"/><RowDefinition Height="27"/></Grid.RowDefinitions>
+     <Grid.ColumnDefinitions><ColumnDefinition Width="264"/><ColumnDefinition Width="*"/><ColumnDefinition Width="284"/></Grid.ColumnDefinitions>
+-    <Border Tag="InputSurface" x:Name="HeaderPanel" Grid.ColumnSpan="3" Style="{StaticResource Panel}" Padding="18,12" Margin="0,0,0,14">
++    <Border Tag="InputSurface" x:Name="HeaderPanel" Grid.ColumnSpan="3" Style="{StaticResource Panel}" Padding="18,10" MinHeight="70" Margin="0,0,0,14">
+       <Grid>
+         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="105"/><ColumnDefinition Width="105"/><ColumnDefinition Width="115"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+-        <StackPanel>
++        <StackPanel VerticalAlignment="Center">
+           <TextBlock Text="A R K A E N   /   K E P L E R" Foreground="{StaticResource Accent}" FontSize="12"/>
+           <TextBlock x:Name="BrandTitle" Text="ORBITAL COMMAND" FontSize="24" FontWeight="SemiBold" Margin="0,2,0,0"/>
+         </StackPanel>
+-        <StackPanel Grid.Column="1"><TextBlock Style="{StaticResource Caption}" Text="CREDITS"/><TextBlock Text="{Binding Credits}" FontSize="20"/></StackPanel>
+-        <StackPanel Grid.Column="2"><TextBlock Style="{StaticResource Caption}" Text="RESEARCH"/><TextBlock Text="{Binding Research}" FontSize="20"/></StackPanel>
+-        <StackPanel Grid.Column="3"><TextBlock Style="{StaticResource Caption}" Text="FLEET"/><TextBlock Text="{Binding FleetCount}" FontSize="20"/></StackPanel>
++        <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Style="{StaticResource Caption}" Text="CREDITS"/><TextBlock x:Name="HeaderCredits" Text="{Binding Credits}" FontSize="20"/></StackPanel>
++        <StackPanel Grid.Column="2" VerticalAlignment="Center"><TextBlock Style="{StaticResource Caption}" Text="RESEARCH"/><TextBlock x:Name="HeaderResearch" Text="{Binding Research}" FontSize="20"/></StackPanel>
++        <StackPanel Grid.Column="3" VerticalAlignment="Center"><TextBlock Style="{StaticResource Caption}" Text="FLEET"/><TextBlock x:Name="HeaderFleetCount" Text="{Binding FleetCount}" FontSize="20"/></StackPanel>
+         <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
++          <Button Content="{Binding SolarMapButton}" Command="{Binding SolarMapCommand}" Margin="0,0,8,0" ToolTip="Solar System / Local Orbit"/>
+           <Button x:Name="BriefingButton" Content="BRIEFING" Command="{Binding BriefingCommand}" Margin="0,0,8,0"/>
+           <Button Content="F11" Command="{Binding FullscreenCommand}" ToolTip="Fullscreen · F11"/>
+         </StackPanel>
+@@ -137,6 +138,25 @@
+         <TextBlock Text="DRAG TO ORBIT   /   MIDDLE DRAG TO PAN   /   SCROLL TO ZOOM" Foreground="#A0BAC4" FontSize="11" HorizontalAlignment="Center"/>
+         <TextBlock Text="Click a vessel or its label to select" Foreground="#608590" FontSize="11" Margin="0,5,0,0" HorizontalAlignment="Center"/>
+       </StackPanel>
++      <Border Visibility="{Binding SolarMapVisibility}" Tag="InputSurface" Background="#FF0B1722" BorderBrush="#36486373" BorderThickness="1" CornerRadius="8" Padding="12">
++        <Grid>
++          <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
++          <StackPanel><TextBlock Text="SOL / REAL EPHEMERIDES" FontSize="21" Foreground="{StaticResource Accent}"/><TextBlock Text="{Binding SolarStatus}" TextWrapping="Wrap" FontSize="12"/></StackPanel>
++          <Viewbox Grid.Row="1" Stretch="Uniform">
++            <Canvas Width="560" Height="560" ClipToBounds="True">
++              <Ellipse Canvas.Left="30" Canvas.Top="30" Width="500" Height="500" Stroke="#506A7A" StrokeThickness="1"/>
++              <Line X1="30" Y1="280" X2="530" Y2="280" Stroke="#365261"/><Line X1="280" Y1="30" X2="280" Y2="530" Stroke="#365261"/>
++              <Ellipse Canvas.Left="275" Canvas.Top="275" Width="10" Height="10" Fill="#FFC76F"/>
++              <ItemsControl ItemsSource="{Binding PlanetMarkers}" Width="560" Height="560">
++                <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
++                <ItemsControl.ItemContainerStyle><Style TargetType="ContentPresenter"><Setter Property="Canvas.Left" Value="{Binding Left}"/><Setter Property="Canvas.Top" Value="{Binding Top}"/></Style></ItemsControl.ItemContainerStyle>
++                <ItemsControl.ItemTemplate><DataTemplate><StackPanel Orientation="Horizontal"><Ellipse Width="8" Height="8" Fill="#70E5D5" VerticalAlignment="Top" Margin="0,0,4,0"/><StackPanel><TextBlock Text="{Binding Name}" FontSize="13"/><TextBlock Text="{Binding Distance}" FontSize="10" Foreground="#879FAB"/></StackPanel></StackPanel></DataTemplate></ItemsControl.ItemTemplate>
++              </ItemsControl>
++            </Canvas>
++          </Viewbox>
++          <StackPanel Grid.Row="2"><TextBlock Text="{Binding SolarScaleText}" FontSize="12"/><TextBlock Text="Positions at snapshot epoch; marker sizes symbolic. No orbital propagation." FontSize="11" TextWrapping="Wrap"/><Button Content="{Binding SolarScaleButton}" Command="{Binding SolarScaleCommand}" Margin="0,6,0,0"/></StackPanel>
++        </Grid>
++      </Border>
+     </Grid>
+ 
+     <Border Tag="InputSurface" x:Name="InspectorPanel" Grid.Row="1" Grid.Column="2" Style="{StaticResource Panel}" Margin="0,0,0,14">
+diff --git a/samples/OrbitalCommand/Ui/OrbitalCommand.noesis b/samples/OrbitalCommand/Ui/OrbitalCommand.noesis
+index db774bb..3950d56 100644
+--- a/samples/OrbitalCommand/Ui/OrbitalCommand.noesis
++++ b/samples/OrbitalCommand/Ui/OrbitalCommand.noesis
+@@ -1,5 +1,5 @@
+ <Project>
+   <Assembly>Arkaen.OrbitalCommand</Assembly>
+-  <DefaultDataNamespace>Arkaen.OrbitalCommand</DefaultDataNamespace>
++  <DefaultDataNamespace>OrbitalCommand</DefaultDataNamespace>
+   <StartupDocument>Dashboard.xaml</StartupDocument>
+ </Project>
+diff --git a/samples/Starfighter/Assets/cockpit-attribution.txt b/samples/Starfighter/Assets/cockpit-attribution.txt
+new file mode 100644
+index 0000000..128701c
+--- /dev/null
++++ b/samples/Starfighter/Assets/cockpit-attribution.txt
+@@ -0,0 +1,11 @@
++Model Information:
++* title:	Spaceship 001 - Cockpit Concept
++* source:	https://sketchfab.com/3d-models/spaceship-001-cockpit-concept-a699d0978ece4c7d8dc6cc650e19a9aa
++* author:	Mixmamo.studio:   An effortless 3D collections. (https://sketchfab.com/mixmamo.studio)
++
++Model License:
++* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
++* requirements:	Author must be credited. Commercial use is allowed.
++
++If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
++This work is based on "Spaceship 001 - Cockpit Concept" (https://sketchfab.com/3d-models/spaceship-001-cockpit-concept-a699d0978ece4c7d8dc6cc650e19a9aa) by Mixmamo.studio:   An effortless 3D collections. (https://sketchfab.com/mixmamo.studio) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+\ No newline at end of file
+diff --git a/samples/Starfighter/CockpitMeshFile.cs b/samples/Starfighter/CockpitMeshFile.cs
+new file mode 100644
+index 0000000..43cf3df
+--- /dev/null
++++ b/samples/Starfighter/CockpitMeshFile.cs
+@@ -0,0 +1,38 @@
++using System.Numerics;
++using System.Text;
++
++namespace Starfighter;
++
++/// <summary>Reads the bounded, versioned preview format generated by prepare-cockpit.py.</summary>
++public static class CockpitMeshFile {
++    public static IReadOnlyList<MeshData> Load( string path ) {
++        using var reader = new BinaryReader( File.OpenRead( path ) );
++        if ( Encoding.ASCII.GetString( reader.ReadBytes( 4 ) ) != "DXCM" || reader.ReadUInt32( ) != 1 )
++            throw new InvalidDataException( "Unsupported cockpit mesh format." );
++        uint count = reader.ReadUInt32( );
++        if ( count is 0 or > 256 ) throw new InvalidDataException( "Invalid chunk count." );
++        var result = new List<MeshData>( (int)count );
++        for ( int chunk = 0; chunk < count; chunk++ ) {
++            uint vc = reader.ReadUInt32( ), ic = reader.ReadUInt32( );
++            if ( vc is 0 or > 65535 || ic is 0 or > 3_000_000 || ic % 3 != 0 ||
++                 reader.BaseStream.Length - reader.BaseStream.Position < (long)vc * 36 + (long)ic * 2 )
++                throw new InvalidDataException( "Invalid cockpit mesh dimensions." );
++            var vertices = new Vertex[(int)vc]; var indices = new ushort[(int)ic];
++            for ( int i = 0; i < vertices.Length; i++ ) {
++                Vector3 p = ReadVector( ), n = ReadVector( ), c = ReadVector( );
++                if ( !float.IsFinite( p.LengthSquared( ) ) || !float.IsFinite( n.LengthSquared( ) ) ||
++                     MathF.Abs( n.LengthSquared( ) - 1 ) > 0.01f || !float.IsFinite( c.LengthSquared( ) ) )
++                    throw new InvalidDataException( "Invalid cockpit vertex." );
++                vertices[i] = new( p, n, c );
++            }
++            for ( int i = 0; i < indices.Length; i++ ) {
++                indices[i] = reader.ReadUInt16( );
++                if ( indices[i] >= vc ) throw new InvalidDataException( "Cockpit mesh index out of range." );
++            }
++            result.Add( new( vertices, indices ) );
++        }
++        if ( reader.BaseStream.Position != reader.BaseStream.Length ) throw new InvalidDataException( "Unexpected trailing mesh data." );
++        return result;
++        Vector3 ReadVector( ) => new( reader.ReadSingle( ), reader.ReadSingle( ), reader.ReadSingle( ) );
++    }
++}
+diff --git a/samples/Starfighter/Game.cs b/samples/Starfighter/Game.cs
+index 762390d..b398001 100644
+--- a/samples/Starfighter/Game.cs
++++ b/samples/Starfighter/Game.cs
+@@ -226,9 +226,34 @@ public sealed class StarfighterGame : ObservableObject {
+         // RMB head-look is camera-only. Keep the ship attitude and weapon boresight
+         // unchanged, and limit the pilot's neck travel to a plausible field of view.
+         _lookYaw = Math.Clamp( _lookYaw + dx * 0.0029f, -1.72f, 1.72f );
+-        _lookPitch = Math.Clamp( _lookPitch - dy * 0.0029f, -1.12f, 1.12f );
++        _lookPitch = Math.Clamp( _lookPitch + dy * 0.0029f, -1.12f, 1.12f );
+     }
+ 
++    /// <summary>Steer the airframe around its local axes; independent head-look remains available.</summary>
++    public void Steer( float dx, float dy ) {
++        if ( Paused || GameOver || !float.IsFinite( dx ) || !float.IsFinite( dy ) ) return;
++        const float sensitivity = 0.0029f;
++        float yaw = Math.Clamp( dx * sensitivity, -0.35f, 0.35f );
++        float pitch = Math.Clamp( dy * sensitivity, -0.35f, 0.35f );
++        _orientation = Quaternion.Normalize( _orientation * Quaternion.CreateFromYawPitchRoll( yaw, pitch, 0 ) );
++        CenterLook( );
++    }
++
++    // Pointer aim is limited to a small gimbal cone around the airframe. Space fires
++    // along boresight; clicking the scene aims the twin guns at the pointer ray.
++    private Vector3? _aimDirection;
++    public void AimAt( float x, float y, int width, int height ) {
++        if ( width <= 0 || height <= 0 || !float.IsFinite( x ) || !float.IsFinite( y ) ) return;
++        float nx = 2 * x / width - 1, ny = 1 - 2 * y / height;
++        Vector3 ray = Vector3.Normalize( CameraForward + CameraRight * (nx * Fov * width / height) + CameraUp * (ny * Fov) );
++        const float maxTangent = 0.2679492f; // 15 degrees
++        float z = Math.Max( 0.001f, Vector3.Dot( ray, Forward ) );
++        Vector2 tangent = new( Vector3.Dot( ray, Right ) / z, Vector3.Dot( ray, Up ) / z );
++        if ( tangent.LengthSquared( ) > maxTangent * maxTangent ) tangent = Vector2.Normalize( tangent ) * maxTangent;
++        _aimDirection = Vector3.Normalize( Forward + Right * tangent.X + Up * tangent.Y );
++    }
++    public void ClearAim( ) => _aimDirection = null;
++
+     public void CenterLook( ) { _lookYaw = 0; _lookPitch = 0; }
+     public void AdjustZoom( int wheelDelta ) => _fov = Math.Clamp( _fov * MathF.Exp( -wheelDelta * 0.00055f ), 0.34f, 0.78f );
+     public void TogglePause( ) { if ( !GameOver ) Paused = !Paused; }
+@@ -246,7 +271,7 @@ public sealed class StarfighterGame : ObservableObject {
+         float yawInput = (yawRight ? 1 : 0) - (yawLeft ? 1 : 0);
+         float pitchInput = (pitchUp ? 1 : 0) - (pitchDown ? 1 : 0);
+         float rollInput = (rollRight ? 1 : 0) - (rollLeft ? 1 : 0);
+-        _angularVelocity += new Vector3( pitchInput * 1.8f, yawInput * 1.45f, rollInput * 2.25f ) * dt;
++        _angularVelocity += new Vector3( -pitchInput * 1.8f, yawInput * 1.45f, -rollInput * 2.25f ) * dt;
+         _angularVelocity *= MathF.Exp( -2.35f * dt );
+         var attitudeDelta = Quaternion.CreateFromYawPitchRoll( _angularVelocity.Y * dt, _angularVelocity.X * dt, _angularVelocity.Z * dt );
+         _orientation = Quaternion.Normalize( _orientation * attitudeDelta );
+@@ -351,14 +376,16 @@ public sealed class StarfighterGame : ObservableObject {
+ 
+     private void Shoot( ) {
+         Vector3 forward = Forward, right = Right, up = Up;
++        Vector3 aim = _aimDirection ?? forward;
++        Vector3 convergence = _position + forward * 5.18f + aim * 70f;
+         // Match the actual twin cannon rails on the external fighter mesh. Muzzles sit
+         // beyond the forward canopy bow, so bolts cannot originate inside the cockpit.
+         const float muzzleForward = 5.18f;
+         const float muzzleOffset = 1.07f;
+         _bolts.Add( new( ) { Position = _position + forward * muzzleForward - right * muzzleOffset + up * 0.01f,
+-            Velocity = _velocity + forward * 155, Age = 0, Side = -1 } );
++            Velocity = _velocity + Vector3.Normalize( convergence - (_position + forward * muzzleForward - right * muzzleOffset + up * 0.01f) ) * 155, Age = 0, Side = -1 } );
+         _bolts.Add( new( ) { Position = _position + forward * muzzleForward + right * muzzleOffset + up * 0.01f,
+-            Velocity = _velocity + forward * 155, Age = 0, Side = 1 } );
++            Velocity = _velocity + Vector3.Normalize( convergence - (_position + forward * muzzleForward + right * muzzleOffset + up * 0.01f) ) * 155, Age = 0, Side = 1 } );
+         _heat = Math.Min( 100, _heat + 7.1f ); _shotClock = 0.115f;
+         _cameraShake = Math.Max( _cameraShake, 0.012f );
+         Sound( SoundCue.Cannon );
+@@ -556,7 +583,7 @@ public sealed class StarfighterGame : ObservableObject {
+         _time = 0; _readoutClock = 0.08; _spawnClock = 1.5f; _shotClock = _heat = 0; _shieldDelay = 0; _damageFlash = _cameraShake = 0; _boostEnergy = 100; _environmentImpactDelay = 0;
+         _combo = _comboTimer = 0; _hull = _shield = 100; _score = 0; _kills = 0; _wave = 1;
+         _overheated = _boostToggle = _boosting = _paused = _gameOver = false;
+-        _lookYaw = _lookPitch = 0;
++        _lookYaw = _lookPitch = 0; ClearAim( );
+         ChaseView = false;
+         PauseVisibility = GameOverVisibility = DamageVisibility = N.Visibility.Collapsed;
+         TargetVisibility = N.Visibility.Collapsed;
+diff --git a/samples/Starfighter/Program.cs b/samples/Starfighter/Program.cs
+index aa0242e..5c2f982 100644
+--- a/samples/Starfighter/Program.cs
++++ b/samples/Starfighter/Program.cs
+@@ -98,9 +98,8 @@ internal static class Program {
+         var view = overlay.View;
+         var hitTest = new OverlayInput( view ) { Scale = scale };
+         var keys = new HashSet<Forms.Keys>( );
+-        // Left-click is reserved for Noesis cockpit controls. RMB temporarily captures
+-        // the pointer for independent head-look; Space is the only keyboard trigger.
+-        bool uiPointer = false, lookPointer = false, cursorHidden = false;
++        // Noesis controls take priority. RMB steers, MMB head-looks, scene LMB fires.
++        bool uiPointer = false, lookPointer = false, steering = false, firePointer = false, cursorHidden = false;
+         N.MouseButton? uiButton = null;
+         int lastMouseX = 0, lastMouseY = 0;
+ 
+@@ -123,7 +122,7 @@ internal static class Program {
+             for ( int i = 0; i < buffers.Length; i++ ) { buffers[i]?.Dispose( ); buffers[i] = null; }
+         }
+         void ClearInput( ) {
+-            keys.Clear( ); uiPointer = lookPointer = false; uiButton = null;
++            keys.Clear( ); uiPointer = lookPointer = steering = firePointer = false; uiButton = null; game.ClearAim( );
+             if ( cursorHidden ) { Forms.Cursor.Show( ); cursorHidden = false; }
+             view.Content.Mouse.Capture( null );
+         }
+@@ -133,16 +132,19 @@ internal static class Program {
+         window.MouseDown += ( _, e ) => {
+             var button = MapButton( e.Button ); if ( button is null ) return;
+             lastMouseX = e.X; lastMouseY = e.Y;
++            if ( uiPointer || lookPointer || firePointer ) return;
+             if ( hitTest.BlocksSceneAt( e.X, e.Y ) ) {
+                 uiPointer = true; uiButton = button;
+                 view.MouseMove( e.X, e.Y ); view.MouseButtonDown( e.X, e.Y, button.Value );
+                 window.Capture = true;
+-            } else if ( e.Button == Forms.MouseButtons.Right && !hitTest.BlocksSceneAt( e.X, e.Y ) ) {
+-                lookPointer = true; window.Capture = true;
++            } else if ( e.Button is Forms.MouseButtons.Right or Forms.MouseButtons.Middle ) {
++                steering = e.Button == Forms.MouseButtons.Right; lookPointer = true; window.Capture = true;
+                 if ( !cursorHidden ) { Forms.Cursor.Hide( ); cursorHidden = true; }
+                 Forms.Cursor.Position = window.PointToScreen( new System.Drawing.Point( window.ClientSize.Width / 2, window.ClientSize.Height / 2 ) );
+-            } else if ( !uiPointer ) {
+-                view.MouseMove( e.X, e.Y ); view.MouseButtonDown( e.X, e.Y, button.Value );
++            } else if ( e.Button == Forms.MouseButtons.Left ) {
++                firePointer = true; window.Capture = true;
++                game.AimAt( e.X, e.Y, window.ClientSize.Width, window.ClientSize.Height );
++                game.FireCommand.Execute( null );
+             }
+         };
+         window.MouseMove += ( _, e ) => {
+@@ -151,17 +153,21 @@ internal static class Program {
+                 int centerX = window.ClientSize.Width / 2, centerY = window.ClientSize.Height / 2;
+                 int dx = e.X - centerX, dy = e.Y - centerY;
+                 if ( dx != 0 || dy != 0 ) {
+-                    game.Look( dx, dy );
++                    if ( steering ) game.Steer( dx, dy ); else game.Look( dx, dy );
+                     // Re-centering keeps the pilot's aim free of desktop-edge limits.
+                     Forms.Cursor.Position = window.PointToScreen( new System.Drawing.Point( centerX, centerY ) );
+                 }
+-            } else view.MouseMove( e.X, e.Y );
++            } else if ( firePointer ) game.AimAt( e.X, e.Y, window.ClientSize.Width, window.ClientSize.Height );
++            else view.MouseMove( e.X, e.Y );
+             lastMouseX = e.X; lastMouseY = e.Y;
+         };
+         window.MouseUp += ( _, e ) => {
+-            if ( MapButton( e.Button ) is { } button && uiPointer ) view.MouseButtonUp( e.X, e.Y, button );
+-            if ( e.Button == Forms.MouseButtons.Right ) {
+-                lookPointer = false;
++            if ( MapButton( e.Button ) is { } button && uiPointer && uiButton == button ) {
++                view.MouseButtonUp( e.X, e.Y, button ); uiPointer = false; uiButton = null;
++            }
++            if ( e.Button == Forms.MouseButtons.Left && firePointer ) { firePointer = false; game.ClearAim( ); }
++            if ( lookPointer && e.Button == (steering ? Forms.MouseButtons.Right : Forms.MouseButtons.Middle) ) {
++                lookPointer = steering = false;
+                 if ( cursorHidden ) { Forms.Cursor.Show( ); cursorHidden = false; }
+             }
+             if ( Forms.Control.MouseButtons == Forms.MouseButtons.None ) {
+@@ -173,9 +179,9 @@ internal static class Program {
+             else game.AdjustZoom( e.Delta );
+         };
+         window.MouseCaptureChanged += ( _, _ ) => {
+-            if ( !window.Capture && (uiPointer || lookPointer) ) {
++            if ( !window.Capture && (uiPointer || lookPointer || firePointer) ) {
+                 if ( uiPointer && uiButton is { } button ) view.MouseButtonUp( lastMouseX, lastMouseY, button );
+-                uiPointer = lookPointer = false; uiButton = null;
++                uiPointer = lookPointer = steering = firePointer = false; uiButton = null; game.ClearAim( );
+                 if ( cursorHidden ) { Forms.Cursor.Show( ); cursorHidden = false; }
+             }
+         };
+@@ -221,6 +227,7 @@ internal static class Program {
+                 slot.Begin( );
+                 double now = clock.Elapsed.TotalSeconds;
+                 double dt = smoke ? 1.0 / 60 : Math.Min( now - previous, 0.05 ); previous = now;
++                if ( firePointer ) game.AimAt( lastMouseX, lastMouseY, size.Width, size.Height );
+                 game.Tick( dt,
+                     keys.Contains( Forms.Keys.Left ), keys.Contains( Forms.Keys.Right ),
+                     keys.Contains( Forms.Keys.Up ), keys.Contains( Forms.Keys.Down ),
+@@ -229,7 +236,7 @@ internal static class Program {
+                     keys.Contains( Forms.Keys.A ), keys.Contains( Forms.Keys.D ),
+                     keys.Contains( Forms.Keys.R ), keys.Contains( Forms.Keys.F ),
+                     keys.Contains( Forms.Keys.ShiftKey ) || keys.Contains( Forms.Keys.LShiftKey ) || keys.Contains( Forms.Keys.RShiftKey ),
+-                    keys.Contains( Forms.Keys.Space ) );
++                    keys.Contains( Forms.Keys.Space ) || firePointer );
+                 audio?.SetFlightState( game.Speed, game.Boosting, game.SoundEnabled );
+                 view.Update( now );
+ 
+diff --git a/samples/Starfighter/Scene.hlsl b/samples/Starfighter/Scene.hlsl
+index 7432b1f..7b489b4 100644
+--- a/samples/Starfighter/Scene.hlsl
++++ b/samples/Starfighter/Scene.hlsl
+@@ -56,9 +56,8 @@ FullscreenOut VSPlanet(uint id : SV_VertexID) {
+ float4 PSPlanet(FullscreenOut input) : SV_Target {
+     float2 centered = input.uv * 2 - 1;
+     float3 ray = normalize(ForwardAspect.xyz + Options.w * (centered.x * ForwardAspect.w * RightExposure.xyz - centered.y * UpAtmosphere.xyz));
+-    // Nearby nebula structure and stars exhibit translational parallax, so the
+-    // world visibly slides past the canopy during inertial flight.
+-    float3 nebulaCoord = ray * 3.2 + CameraTime.xyz * 0.0085 + float3(0.5, 1.4, CameraTime.w * 0.0015);
++    // Distant sky is direction-dependent only; translation must not move stars.
++    float3 nebulaCoord = ray * 3.2 + float3(0.5, 1.4, 0.0);
+     float clouds = pow(saturate(Fbm(nebulaCoord * 1.7 + 2.1)), 3.0);
+     float filaments = pow(saturate(Fbm(nebulaCoord * 4.6 + float3(4,2,1)) - 0.43), 2.0);
+     float3 color = float3(0.0018, 0.003, 0.009)
+@@ -67,7 +66,6 @@ float4 PSPlanet(FullscreenOut input) : SV_Target {
+ 
+     // Dense star atlas with twinkle, small diffraction spikes and a soft optical halo.
+     float2 sky = float2(atan2(ray.z, ray.x) / 6.2831853, asin(clamp(ray.y,-1,1)) / 3.1415927) * float2(920,460);
+-    sky += CameraTime.xz * 0.085;
+     float2 cell = floor(sky);
+     float footprint = max(length(fwidth(sky)), 0.025);
+     float speed = length(Options.xyz);
+@@ -131,10 +129,11 @@ MeshOutput VSBody(MeshInput input) {
+     float3 relative;
+     if (mode == 2) {
+         // Cockpit geometry is modeled in pilot-local coordinates and follows all six flight axes.
+-        relative = localPosition + Object.xyz;
++        relative = localPosition;
+         // The cockpit belongs to the airframe, not the pilot's head. Camera basis can
+         // yaw/pitch independently while this mesh stays fixed to the ship's attitude.
+-        o.world = CameraTime.xyz + PilotRight.xyz * relative.x + PilotUp.xyz * relative.y + PilotForward.xyz * relative.z;
++        o.world = Object.xyz + PilotRight.xyz * relative.x + PilotUp.xyz * relative.y + PilotForward.xyz * relative.z;
++        relative = o.world - CameraTime.xyz;
+         o.normal = normalize(PilotRight.xyz * localNormal.x + PilotUp.xyz * localNormal.y + PilotForward.xyz * localNormal.z);
+     } else if (mode == 1) {
+         float3 pulsePosition = RightExposure.xyz * localPosition.x + UpAtmosphere.xyz * localPosition.y + ForwardAspect.xyz * localPosition.z;
+@@ -157,11 +156,12 @@ MeshOutput VSBody(MeshInput input) {
+     o.color = input.color;
+     float z = dot(relative, ForwardAspect.xyz);
+     o.viewZ = z;
+-    if (z <= 0.12) { o.position = float4(2,2,2,1); return o; }
+-    float2 projected = float2(dot(relative, RightExposure.xyz) / (Options.w * ForwardAspect.w), dot(relative, UpAtmosphere.xyz) / Options.w) / z;
+-    float2 pixel = Viewport.xy + (projected * float2(0.5,-0.5) + 0.5) * Viewport.zw;
+-    float2 clip = pixel / Surface.xy * float2(2,-2) + float2(-1,1);
+-    o.position = float4(clip * z, 100.0/99.95*z - 5.0/99.95, z);
++    // Homogeneous projection: allow the hardware to clip triangles crossing the near plane.
++    float2 projected = float2(dot(relative, RightExposure.xyz) / (Options.w * ForwardAspect.w), dot(relative, UpAtmosphere.xyz) / Options.w);
++    float2 offset = (Viewport.xy + 0.5 * Viewport.zw) / Surface.xy * float2(2,-2) + float2(-1,1);
++    float2 clip = projected * Viewport.zw / Surface.xy + offset * z;
++    const float nearZ = 0.12, farZ = 300.0;
++    o.position = float4(clip, farZ/(farZ-nearZ)*(z-nearZ), z);
+     return o;
+ }
+ float4 PSBody(MeshOutput input, bool front : SV_IsFrontFace) : SV_Target {
+diff --git a/samples/Starfighter/SceneRenderer.cs b/samples/Starfighter/SceneRenderer.cs
+index 837e793..adaf801 100644
+--- a/samples/Starfighter/SceneRenderer.cs
++++ b/samples/Starfighter/SceneRenderer.cs
+@@ -14,6 +14,7 @@ public sealed class SceneRenderer : IDisposable {
+     private readonly RootSignature _root;
+     private readonly PipelineState _backgroundPipeline, _meshPipeline;
+     private readonly Mesh _asteroid, _pulse, _cockpit, _sun, _planet, _ring, _fighter, _exhaust;
++    private readonly List<Mesh> _importedCockpit = [];
+     private readonly uint[] _constants = new uint[52];
+     private DepthTarget? _depth;
+     public uint MeshDraws { get; private set; }
+@@ -59,8 +60,16 @@ public sealed class SceneRenderer : IDisposable {
+                                             try {
+                                                 MeshData exhaustData = SceneGeometry.EngineFlare( );
+                                                 _exhaust = device.CreateMesh<Vertex>( commands, exhaustData.Vertices, exhaustData.Indices );
+-                                                try { commands.Close( ); queue.Wait( queue.Submit( commands ) ); }
+-                                                catch { _exhaust.Dispose( ); throw; }
++                                                try {
++                                                    if ( Environment.GetEnvironmentVariable( "DXSHARP_COCKPIT_PREVIEW" ) == "1" ) {
++                                                        foreach ( MeshData chunk in CockpitMeshFile.Load( Path.Combine( AppContext.BaseDirectory, "Assets", "cockpit.mesh" ) ) )
++                                                            _importedCockpit.Add( device.CreateMesh<Vertex>( commands, chunk.Vertices, chunk.Indices ) );
++                                                    }
++                                                    commands.Close( ); queue.Wait( queue.Submit( commands ) );
++                                                } catch {
++                                                    foreach ( Mesh mesh in _importedCockpit ) mesh.Dispose( );
++                                                    _exhaust.Dispose( ); throw;
++                                                }
+                                             } catch { _fighter.Dispose( ); throw; }
+                                         } catch { _ring.Dispose( ); throw; }
+                                     } catch { _planet.Dispose( ); throw; }
+@@ -142,8 +151,10 @@ public sealed class SceneRenderer : IDisposable {
+             DrawMesh( commands, _exhaust, game.Position, 1, 0, 4, new( 0.35f, 0.78f, 1.25f ), game.Boosting ? 3.1f : 1.8f );
+             DrawMesh( commands, _fighter, game.Position, 1, 0, 4, Vector3.One, 1.0f );
+         } else {
+-            PutObject( Vector3.Zero, 1 ); PutDetail( 0, 2, 0, 0 ); Put( 28, Vector3.One, 1 );
+-            commands.SetGraphicsConstants( _constants ); commands.DrawMesh( _cockpit ); MeshDraws++;
++            PutObject( game.Position, 1 ); PutDetail( 0, 2, 0, 0 ); Put( 28, Vector3.One, 1 );
++            commands.SetGraphicsConstants( _constants );
++            if ( _importedCockpit.Count == 0 ) { commands.DrawMesh( _cockpit ); MeshDraws++; }
++            else foreach ( Mesh mesh in _importedCockpit ) { commands.DrawMesh( mesh ); MeshDraws++; }
+         }
+         game.DrawCount = (int)MeshDraws;
+ 
+@@ -159,6 +170,7 @@ public sealed class SceneRenderer : IDisposable {
+     }
+ 
+     public void Dispose( ) {
++        foreach ( Mesh mesh in _importedCockpit ) mesh.Dispose( );
+         _depth?.Dispose( ); _exhaust.Dispose( ); _fighter.Dispose( ); _ring.Dispose( ); _planet.Dispose( ); _sun.Dispose( ); _cockpit.Dispose( );
+         _pulse.Dispose( ); _asteroid.Dispose( ); _meshPipeline.Dispose( ); _backgroundPipeline.Dispose( ); _root.Dispose( );
+     }
+diff --git a/samples/Starfighter/Starfighter.csproj b/samples/Starfighter/Starfighter.csproj
+index cc2860d..2ae3fdd 100644
+--- a/samples/Starfighter/Starfighter.csproj
++++ b/samples/Starfighter/Starfighter.csproj
+@@ -8,7 +8,10 @@
+   <ItemGroup>
+     <ProjectReference Include="../../src/DXSharp.Noesis/DXSharp.Noesis.csproj" />
+     <PackageReference Include="Noesis.App" />
++    <None Update="Ui/Avionics.xaml" CopyToOutputDirectory="PreserveNewest" />
+     <None Update="Ui/Cockpit.xaml" CopyToOutputDirectory="PreserveNewest" />
++    <None Update="Assets/cockpit.mesh" CopyToOutputDirectory="PreserveNewest" />
++    <None Update="Assets/cockpit-attribution.txt" CopyToOutputDirectory="PreserveNewest" />
+     <None Update="Scene.hlsl" CopyToOutputDirectory="PreserveNewest" />
+   </ItemGroup>
+ </Project>
+diff --git a/samples/Starfighter/Ui/Avionics.xaml b/samples/Starfighter/Ui/Avionics.xaml
+new file mode 100644
+index 0000000..7c58fe5
+--- /dev/null
++++ b/samples/Starfighter/Ui/Avionics.xaml
+@@ -0,0 +1,13 @@
++<Grid xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
++      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Width="512" Height="320"
++      TextElement.Foreground="#D9F0F2" TextElement.FontSize="18" Background="#081821">
++  <Grid Margin="16">
++    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
++    <StackPanel><TextBlock Text="VANGUARD / AVIONICS" Foreground="#70E5D5" FontSize="24"/><TextBlock Text="FLIGHT SYSTEMS" Foreground="#879FAB"/></StackPanel>
++    <Grid Grid.Row="1" Margin="0,12"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
++      <StackPanel><TextBlock Text="VELOCITY"/><TextBlock Text="{Binding SpeedText, FallbackValue='08.0 KM/S'}" FontSize="24"/><TextBlock Text="HULL" Margin="0,8,0,0"/><TextBlock Text="{Binding HullText, FallbackValue='100%'}"/><TextBlock Text="SHIELDS" Margin="0,8,0,0"/><TextBlock Text="{Binding ShieldText, FallbackValue='100%'}"/></StackPanel>
++      <StackPanel Grid.Column="1"><TextBlock Text="CONTACT"/><TextBlock Text="{Binding TargetName, FallbackValue='NO TARGET'}" TextWrapping="Wrap"/><TextBlock Text="{Binding TargetRange, FallbackValue='—'}"/><TextBlock Text="{Binding Status, FallbackValue='SYSTEMS NOMINAL'}" TextWrapping="Wrap" Margin="0,12,0,0"/></StackPanel>
++    </Grid>
++    <UniformGrid Grid.Row="2" Columns="3"><Button Content="CYCLE" Command="{Binding TargetCycleCommand}" Margin="2" Padding="6"/><Button Content="BOOST" Command="{Binding BoostCommand}" Margin="2" Padding="6"/><Button Content="AUDIO" Command="{Binding SoundCommand}" Margin="2" Padding="6"/></UniformGrid>
++  </Grid>
++</Grid>
+diff --git a/samples/Starfighter/Ui/Cockpit.xaml b/samples/Starfighter/Ui/Cockpit.xaml
+index 2afc83c..05a05bf 100644
+--- a/samples/Starfighter/Ui/Cockpit.xaml
++++ b/samples/Starfighter/Ui/Cockpit.xaml
+@@ -215,7 +215,7 @@
+           </ItemsControl>
+         </StackPanel>
+         <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="0,0,16,0">
+-          <TextBlock Text="LMB / COCKPIT CONTROL  ·  SPACE / FIRE" Foreground="#80AEB8" FontSize="7" HorizontalAlignment="Center" Margin="0,0,0,4"/>
++          <TextBlock Text="LMB / INTERACT OR AIM &amp; FIRE  ·  SPACE / BORESIGHT" Foreground="#80AEB8" FontSize="7" HorizontalAlignment="Center" Margin="0,0,0,4"/>
+           <TextBlock Text="{Binding WeaponStateText}" Foreground="{StaticResource Amber}" FontSize="9" HorizontalAlignment="Center" Margin="0,0,0,5"/>
+           <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+             <Button x:Name="FireButton" Content="✣  FIRE" Command="{Binding FireCommand}" Margin="0,0,7,0"/>
+@@ -259,7 +259,7 @@
+             <TextBlock Text="FLIGHT CONTROLS" Foreground="{StaticResource Ion}" FontSize="9" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+             <TextBlock Text="ARROWS  PITCH / YAW       Q / E  ROLL" Foreground="#D1E3E4" FontSize="9" HorizontalAlignment="Center"/>
+             <TextBlock Text="W / S  THRUST             A / D  STRAFE" Foreground="#D1E3E4" FontSize="9" HorizontalAlignment="Center" Margin="0,5,0,0"/>
+-            <TextBlock Text="R / F  LIFT                  RMB  FREE LOOK   ·   SPACE  FIRE" Foreground="#D1E3E4" FontSize="9" HorizontalAlignment="Center" Margin="0,5,0,0"/>
++            <TextBlock Text="R / F  LIFT      RMB  STEER      MMB  FREE LOOK      LMB  AIM / FIRE" Foreground="#D1E3E4" FontSize="9" HorizontalAlignment="Center" Margin="0,5,0,0"/>
+             <TextBlock Text="SHIFT  AFTERBURNER           C  CHASE CAM" Foreground="#D1E3E4" FontSize="9" HorizontalAlignment="Center" Margin="0,5,0,0"/>
+           </StackPanel>
+         </Border>
+diff --git a/samples/Starfighter/Ui/Starfighter.noesis b/samples/Starfighter/Ui/Starfighter.noesis
+index ff05704..e032660 100644
+--- a/samples/Starfighter/Ui/Starfighter.noesis
++++ b/samples/Starfighter/Ui/Starfighter.noesis
+@@ -1,5 +1,5 @@
+ <Project>
+   <Assembly>Arkaen.Starfighter</Assembly>
+-  <DefaultDataNamespace>Arkaen.Starfighter</DefaultDataNamespace>
++  <DefaultDataNamespace>Starfighter</DefaultDataNamespace>
+   <StartupDocument>Cockpit.xaml</StartupDocument>
+ </Project>
+diff --git a/src/DXSharp.Noesis/WorldPanelGeometry.cs b/src/DXSharp.Noesis/WorldPanelGeometry.cs
+new file mode 100644
+index 0000000..f83c2ad
+--- /dev/null
++++ b/src/DXSharp.Noesis/WorldPanelGeometry.cs
+@@ -0,0 +1,31 @@
++using System.Numerics;
++
++namespace DXSharp.Noesis;
++
++/// <summary>World-space planar UI surface. Origin is top-left; U and V span the full surface right and down.</summary>
++public readonly record struct WorldPanelGeometry( Vector3 Origin, Vector3 U, Vector3 V, int PixelWidth, int PixelHeight ) {
++    /// <summary>Intersect a forward ray with the finite, possibly skewed panel and return physical Noesis view pixels.</summary>
++    public bool TryPick( Vector3 rayOrigin, Vector3 rayDirection, out Vector2 pixels, out float distance ) {
++        pixels = default; distance = 0;
++        if ( PixelWidth <= 0 || PixelHeight <= 0 || !float.IsFinite( rayDirection.LengthSquared( ) ) || rayDirection.LengthSquared( ) < 1e-12f ) return false;
++        Vector3 direction = Vector3.Normalize( rayDirection );
++        Vector3 normal = Vector3.Cross( U, V );
++        float normalLength = normal.Length( );
++        if ( !float.IsFinite( normalLength ) || normalLength < 1e-8f ) return false;
++        normal /= normalLength;
++        float denominator = Vector3.Dot( direction, normal );
++        if ( MathF.Abs( denominator ) < 1e-6f ) return false;
++        float t = Vector3.Dot( Origin - rayOrigin, normal ) / denominator;
++        if ( !float.IsFinite( t ) || t < 0 ) return false;
++        Vector3 delta = rayOrigin + direction * t - Origin;
++        float uu = Vector3.Dot( U, U ), uv = Vector3.Dot( U, V ), vv = Vector3.Dot( V, V );
++        float du = Vector3.Dot( delta, U ), dv = Vector3.Dot( delta, V );
++        float determinant = uu * vv - uv * uv;
++        if ( !float.IsFinite( determinant ) || determinant <= 1e-16f ) return false;
++        float x = (du * vv - dv * uv) / determinant, y = (dv * uu - du * uv) / determinant;
++        if ( !float.IsFinite( x ) || !float.IsFinite( y ) || x < 0 || y < 0 || x > 1 || y > 1 ) return false;
++        pixels = new( Math.Clamp( x * PixelWidth, 0, PixelWidth - 1 ), Math.Clamp( y * PixelHeight, 0, PixelHeight - 1 ) );
++        distance = t;
++        return true;
++    }
++}
+diff --git a/tests/Verification/Program.cs b/tests/Verification/Program.cs
+index f6c3c29..463bbd7 100644
+--- a/tests/Verification/Program.cs
++++ b/tests/Verification/Program.cs
+@@ -84,6 +84,13 @@ static class Program {
+                 (width, height, scale) = size; input.Scale = scale;
+                 view.SetScale( scale ); view.SetSize( width, height ); Update( );
+                 Check( Math.Abs( content.ActualWidth - width / scale ) < 1, "DPI layout did not use logical units." );
++                var header = Find<N.FrameworkElement>( "HeaderPanel" );
++                float headerBottom = header.PointToScreen( new( 0, header.ActualHeight ) ).Y;
++                foreach ( string name in new[] { "HeaderCredits", "HeaderResearch", "HeaderFleetCount" } ) {
++                    var value = Find<N.TextBlock>( name );
++                    Check( value.ActualHeight >= 20 && value.PointToScreen( new( 0, value.ActualHeight ) ).Y <= headerBottom,
++                        $"{name} clipped at scale {scale}." );
++                }
+                 Click( "PauseButton" ); Check( deck.Paused, "Pause binding failed after resizing or changing DPI." );
+                 double before = deck.Simulation.Time; deck.Tick( 0.1, width, height, scale );
+                 Check( deck.Simulation.Time == before, "Paused simulation advanced." );
+@@ -181,6 +188,25 @@ static class Program {
+             Check( Find<N.Button>( "CenterLookButton" ).Command is not null, "Center-look cockpit control was not bound." );
+             Check( game.Asteroids.Count >= 130, "The persistent orbital belt was not seeded." );
+ 
++            var panel = new WorldPanelGeometry( new( -1, 1, 4 ), new( 2, 0, 0 ), new( 0, -2, 0 ), 512, 320 );
++            Check( panel.TryPick( Vector3.Zero, Vector3.UnitZ, out var pixel, out float distance ) &&
++                   Vector2.Distance( pixel, new( 256, 160 ) ) < 0.01f && Math.Abs( distance - 4 ) < 0.01f,
++                   "World-panel center ray did not map to the texture center." );
++            Check( !panel.TryPick( Vector3.Zero, Vector3.UnitX, out _, out _ ), "Parallel panel ray incorrectly hit." );
++            Check( !panel.TryPick( Vector3.Zero, new( 2, 0, 1 ), out _, out _ ), "Ray outside the panel incorrectly hit." );
++            var flightProbe = new Fighter.StarfighterGame( );
++            flightProbe.Steer( 0, -80 );
++            Check( flightProbe.Forward.Y > 0, "Moving the steering pointer up did not pitch the airframe up." );
++            flightProbe.CenterLook( );
++            var beforeLook = flightProbe.Forward;
++            flightProbe.Look( 0, -30 );
++            Check( flightProbe.CameraForward.Y > beforeLook.Y && flightProbe.Forward == beforeLook,
++                "Independent head-look pitch changed the airframe or used inverted Y." );
++            flightProbe.CenterLook( );
++            flightProbe.AimAt( 800, 400, 1280, 800 );
++            flightProbe.FireCommand.Execute( null );
++            Check( Vector3.Dot( Vector3.Normalize( flightProbe.Bolts[0].Velocity - flightProbe.Velocity ), flightProbe.Right ) > 0.05f,
++                "Pointer aim did not steer the cannon trajectory." );
+             int soundEvents = 0; game.SoundRequested += _ => soundEvents++;
+             Vector3 launchPosition = game.Position, launchForward = game.Forward, cameraForward = game.CameraForward;
+             game.Look( 120, -45 );
+diff --git a/tests/Verification/Verification.csproj b/tests/Verification/Verification.csproj
+index 645eb08..f4558b9 100644
+--- a/tests/Verification/Verification.csproj
++++ b/tests/Verification/Verification.csproj
+@@ -13,10 +13,13 @@
+     <Compile Include="../../samples/OrbitalCommand/SceneInput.cs" Link="SceneInput.cs" />
+     <Compile Include="../../samples/OrbitalCommand/Simulation.cs" Link="Simulation.cs" />
+     <Compile Include="../../samples/OrbitalCommand/CommandDeck.cs" Link="CommandDeck.cs" />
++    <Compile Include="../../samples/OrbitalCommand/SolarSystemSnapshot.cs" Link="SolarSystemSnapshot.cs" />
++    <Compile Include="../../samples/Starfighter/CockpitMeshFile.cs" Link="Starfighter/CockpitMeshFile.cs" />
+     <Compile Include="../../samples/OrbitalCommand/SceneGeometry.cs" Link="SceneGeometry.cs" />
+     <Compile Include="../../samples/Starfighter/Game.cs" Link="Starfighter/Game.cs" />
+     <Compile Include="../../samples/Starfighter/SceneGeometry.cs" Link="Starfighter/SceneGeometry.cs" />
+     <Compile Include="../../samples/OrbitalCommand/ThemeFontProvider.cs" Link="ThemeFontProvider.cs" />
++    <Compile Include="../../src/DXSharp.Noesis/WorldPanelGeometry.cs" Link="WorldPanelGeometry.cs" />
+     <Compile Include="../../src/DXSharp.Noesis/OverlayInput.cs" Link="OverlayInput.cs" />
+     <None Include="../../samples/OrbitalCommand/Ui/*.xaml" Link="Ui/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+     <None Include="../../samples/Starfighter/Ui/*.xaml" Link="Ui/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />

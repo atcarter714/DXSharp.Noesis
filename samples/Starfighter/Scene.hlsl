@@ -56,9 +56,8 @@ FullscreenOut VSPlanet(uint id : SV_VertexID) {
 float4 PSPlanet(FullscreenOut input) : SV_Target {
     float2 centered = input.uv * 2 - 1;
     float3 ray = normalize(ForwardAspect.xyz + Options.w * (centered.x * ForwardAspect.w * RightExposure.xyz - centered.y * UpAtmosphere.xyz));
-    // Nearby nebula structure and stars exhibit translational parallax, so the
-    // world visibly slides past the canopy during inertial flight.
-    float3 nebulaCoord = ray * 3.2 + CameraTime.xyz * 0.0085 + float3(0.5, 1.4, CameraTime.w * 0.0015);
+    // Distant sky is direction-dependent only; translation must not move stars.
+    float3 nebulaCoord = ray * 3.2 + float3(0.5, 1.4, 0.0);
     float clouds = pow(saturate(Fbm(nebulaCoord * 1.7 + 2.1)), 3.0);
     float filaments = pow(saturate(Fbm(nebulaCoord * 4.6 + float3(4,2,1)) - 0.43), 2.0);
     float3 color = float3(0.0018, 0.003, 0.009)
@@ -67,7 +66,6 @@ float4 PSPlanet(FullscreenOut input) : SV_Target {
 
     // Dense star atlas with twinkle, small diffraction spikes and a soft optical halo.
     float2 sky = float2(atan2(ray.z, ray.x) / 6.2831853, asin(clamp(ray.y,-1,1)) / 3.1415927) * float2(920,460);
-    sky += CameraTime.xz * 0.085;
     float2 cell = floor(sky);
     float footprint = max(length(fwidth(sky)), 0.025);
     float speed = length(Options.xyz);
@@ -131,10 +129,11 @@ MeshOutput VSBody(MeshInput input) {
     float3 relative;
     if (mode == 2) {
         // Cockpit geometry is modeled in pilot-local coordinates and follows all six flight axes.
-        relative = localPosition + Object.xyz;
+        relative = localPosition;
         // The cockpit belongs to the airframe, not the pilot's head. Camera basis can
         // yaw/pitch independently while this mesh stays fixed to the ship's attitude.
-        o.world = CameraTime.xyz + PilotRight.xyz * relative.x + PilotUp.xyz * relative.y + PilotForward.xyz * relative.z;
+        o.world = Object.xyz + PilotRight.xyz * relative.x + PilotUp.xyz * relative.y + PilotForward.xyz * relative.z;
+        relative = o.world - CameraTime.xyz;
         o.normal = normalize(PilotRight.xyz * localNormal.x + PilotUp.xyz * localNormal.y + PilotForward.xyz * localNormal.z);
     } else if (mode == 1) {
         float3 pulsePosition = RightExposure.xyz * localPosition.x + UpAtmosphere.xyz * localPosition.y + ForwardAspect.xyz * localPosition.z;
@@ -157,11 +156,12 @@ MeshOutput VSBody(MeshInput input) {
     o.color = input.color;
     float z = dot(relative, ForwardAspect.xyz);
     o.viewZ = z;
-    if (z <= 0.12) { o.position = float4(2,2,2,1); return o; }
-    float2 projected = float2(dot(relative, RightExposure.xyz) / (Options.w * ForwardAspect.w), dot(relative, UpAtmosphere.xyz) / Options.w) / z;
-    float2 pixel = Viewport.xy + (projected * float2(0.5,-0.5) + 0.5) * Viewport.zw;
-    float2 clip = pixel / Surface.xy * float2(2,-2) + float2(-1,1);
-    o.position = float4(clip * z, 100.0/99.95*z - 5.0/99.95, z);
+    // Homogeneous projection: allow the hardware to clip triangles crossing the near plane.
+    float2 projected = float2(dot(relative, RightExposure.xyz) / (Options.w * ForwardAspect.w), dot(relative, UpAtmosphere.xyz) / Options.w);
+    float2 offset = (Viewport.xy + 0.5 * Viewport.zw) / Surface.xy * float2(2,-2) + float2(-1,1);
+    float2 clip = projected * Viewport.zw / Surface.xy + offset * z;
+    const float nearZ = 0.12, farZ = 300.0;
+    o.position = float4(clip, farZ/(farZ-nearZ)*(z-nearZ), z);
     return o;
 }
 float4 PSBody(MeshOutput input, bool front : SV_IsFrontFace) : SV_Target {

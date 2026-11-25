@@ -84,6 +84,13 @@ static class Program {
                 (width, height, scale) = size; input.Scale = scale;
                 view.SetScale( scale ); view.SetSize( width, height ); Update( );
                 Check( Math.Abs( content.ActualWidth - width / scale ) < 1, "DPI layout did not use logical units." );
+                var header = Find<N.FrameworkElement>( "HeaderPanel" );
+                float headerBottom = header.PointToScreen( new( 0, header.ActualHeight ) ).Y;
+                foreach ( string name in new[] { "HeaderCredits", "HeaderResearch", "HeaderFleetCount" } ) {
+                    var value = Find<N.TextBlock>( name );
+                    Check( value.ActualHeight >= 20 && value.PointToScreen( new( 0, value.ActualHeight ) ).Y <= headerBottom,
+                        $"{name} clipped at scale {scale}." );
+                }
                 Click( "PauseButton" ); Check( deck.Paused, "Pause binding failed after resizing or changing DPI." );
                 double before = deck.Simulation.Time; deck.Tick( 0.1, width, height, scale );
                 Check( deck.Simulation.Time == before, "Paused simulation advanced." );
@@ -181,6 +188,25 @@ static class Program {
             Check( Find<N.Button>( "CenterLookButton" ).Command is not null, "Center-look cockpit control was not bound." );
             Check( game.Asteroids.Count >= 130, "The persistent orbital belt was not seeded." );
 
+            var panel = new WorldPanelGeometry( new( -1, 1, 4 ), new( 2, 0, 0 ), new( 0, -2, 0 ), 512, 320 );
+            Check( panel.TryPick( Vector3.Zero, Vector3.UnitZ, out var pixel, out float distance ) &&
+                   Vector2.Distance( pixel, new( 256, 160 ) ) < 0.01f && Math.Abs( distance - 4 ) < 0.01f,
+                   "World-panel center ray did not map to the texture center." );
+            Check( !panel.TryPick( Vector3.Zero, Vector3.UnitX, out _, out _ ), "Parallel panel ray incorrectly hit." );
+            Check( !panel.TryPick( Vector3.Zero, new( 2, 0, 1 ), out _, out _ ), "Ray outside the panel incorrectly hit." );
+            var flightProbe = new Fighter.StarfighterGame( );
+            flightProbe.Steer( 0, -80 );
+            Check( flightProbe.Forward.Y > 0, "Moving the steering pointer up did not pitch the airframe up." );
+            flightProbe.CenterLook( );
+            var beforeLook = flightProbe.Forward;
+            flightProbe.Look( 0, -30 );
+            Check( flightProbe.CameraForward.Y > beforeLook.Y && flightProbe.Forward == beforeLook,
+                "Independent head-look pitch changed the airframe or used inverted Y." );
+            flightProbe.CenterLook( );
+            flightProbe.AimAt( 800, 400, 1280, 800 );
+            flightProbe.FireCommand.Execute( null );
+            Check( Vector3.Dot( Vector3.Normalize( flightProbe.Bolts[0].Velocity - flightProbe.Velocity ), flightProbe.Right ) > 0.05f,
+                "Pointer aim did not steer the cannon trajectory." );
             int soundEvents = 0; game.SoundRequested += _ => soundEvents++;
             Vector3 launchPosition = game.Position, launchForward = game.Forward, cameraForward = game.CameraForward;
             game.Look( 120, -45 );

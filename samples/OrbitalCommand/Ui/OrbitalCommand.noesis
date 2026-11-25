@@ -1,5 +1,5 @@
 <Project>
   <Assembly>Arkaen.OrbitalCommand</Assembly>
-  <DefaultDataNamespace>Arkaen.OrbitalCommand</DefaultDataNamespace>
+  <DefaultDataNamespace>OrbitalCommand</DefaultDataNamespace>
   <StartupDocument>Dashboard.xaml</StartupDocument>
 </Project>
