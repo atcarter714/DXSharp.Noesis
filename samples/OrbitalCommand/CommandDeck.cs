@@ -46,6 +46,8 @@ public sealed class ShipViewModel : Observable {
 
 }
 
+public sealed record SolarWorldLabel(string Name,float X,float Y);
+
 public sealed class LogEntry {
     public required string Time { get; init; }
     public required string Message { get; init; }
@@ -57,6 +59,69 @@ public sealed class CommandDeck : Observable {
     public ObservableCollection<OrbitSegment> SolarOrbits { get; } = [];
     private IReadOnlyList<PlanetState> _planetStates = [];
     private bool _solarMap;
+    private bool _solar3D;
+    private double _solarJd=2461370.5;
+    private bool _solarClockRunning=true;
+    private float _daysPerSecond=2;
+    private double _solarUiTime;
+    public bool Solar3D => _solar3D;
+    public N.Visibility Solar3DVisibility => Solar3D ? N.Visibility.Visible : N.Visibility.Collapsed;
+    public string Solar3DButton => Solar3D ? "KEPLER" : "3D SOL";
+    public string WorldTitle => Solar3D ? "SOL / HELIOCENTRIC" : "KEPLER / 07";
+    public string WorldSubtitle => Solar3D ? "3D · J2000 ecliptic AU · fitted JPL elements" : "Terrestrial world · equatorial ring system";
+    public string SolarDateText => DateTime.UnixEpoch.AddDays(_solarJd-2440587.5).ToString("yyyy-MM-dd HH:mm")+" TDB (approx.)";
+    public bool SolarClockRunning { get=>_solarClockRunning; set=>Set(ref _solarClockRunning,value); }
+    public float DaysPerSecond { get=>_daysPerSecond; set { if(Set(ref _daysPerSecond,Math.Clamp(value,0,30))) Notify(nameof(SolarRateText)); } }
+    public string SolarRateText => $"{DaysPerSecond:F1} days/s";
+    public IReadOnlyList<PlanetState> SolarStates { get; private set; }=[];
+    public ObservableCollection<SolarWorldLabel> SolarWorldLabels { get; }=[];
+    public ICommand Solar3DCommand { get; }
+    public ICommand SolarPreviousCommand { get; }
+    public ICommand SolarNextCommand { get; }
+    public ICommand SolarTodayCommand { get; }
+    public ICommand SolarInnerCommand { get; }
+    private int _solarFocus=-1;
+    public void ClearSolarFocus()=>_solarFocus=-1;
+    public static System.Numerics.Vector3 SolarPosition(PlanetState state)=>new((float)state.X,(float)state.Z,(float)state.Y);
+    public float SolarRadius(int index) {
+        double physical=(index<0?695700:ApproximateEphemeris.RadiiKm[index])/149597870.7;
+        if(BodyScale<=1)return (float)physical;
+        // A separate visibility cap prevents the exaggerated Sun swallowing Mercury.
+        return (float)Math.Min(index<0?.15:0.10,physical*BodyScale);
+    }
+    private void SetSolarDate(double jd) {
+        _solarJd=Math.Clamp(jd,2378496.5,2469807.5);
+        SolarStates=ApproximateEphemeris.At(_solarJd);
+        Notify(nameof(SolarDateText));
+    }
+    private void ToggleSolar3D() {
+        _solar3D=!_solar3D;
+        if(_solarMap) { _solarMap=false; Notify(nameof(SolarMapVisibility)); Notify(nameof(SolarMapButton)); }
+        FollowSelection=false; AutoCamera=false; _solarFocus=-1;
+        Camera.SolarMode=_solar3D; Camera.Reset();
+        if(_solar3D && SolarStates.Count==0) {
+            LoadSolarSnapshot();
+            SetSolarDate(_epoch);
+        }
+        if(!_solar3D)SolarWorldLabels.Clear();
+        Notify(nameof(Solar3D)); Notify(nameof(Solar3DVisibility)); Notify(nameof(Solar3DButton));
+        Notify(nameof(WorldTitle)); Notify(nameof(WorldSubtitle));
+    }
+    private void LayoutSolarLabels(float width,float height,float scale) {
+        SolarWorldLabels.Clear();
+        if(!ShowLabels)return;
+        var viewport=Camera.GetViewport(width,height);
+        var occupied=new List<ScreenViewport>();
+        var bodies=new[]{("Sun",System.Numerics.Vector3.Zero)}.Concat(SolarStates.Select(p=>(p.Name,SolarPosition(p))));
+        foreach(var (name,pos) in bodies) {
+            if(!Camera.Project(pos,width,height,out var screen))continue;
+            float x=screen.X+9*scale,y=screen.Y-8*scale,w=(name.Length*7+12)*scale,h=20*scale;
+            if(x+w>viewport.X+viewport.Width||y<viewport.Y+76*scale||y+h>viewport.Y+viewport.Height-100*scale)continue;
+            var box=new ScreenViewport(x,y,w,h);
+            if(occupied.Any(b=>box.X<b.X+b.Width&&box.X+box.Width>b.X&&box.Y<b.Y+b.Height&&box.Y+box.Height>b.Y))continue;
+            occupied.Add(box); SolarWorldLabels.Add(new(name,x/scale,y/scale));
+        }
+    }
     private float _solarZoom = 0, _bodyScale = 600;
     private double _epoch = 2461370.5;
     private string _solarStatus = "Select SOL to load ephemerides.";
@@ -162,6 +227,11 @@ public sealed class CommandDeck : Observable {
     public uint LastBatches { get; private set; }
 
     public CommandDeck( ) {
+        Solar3DCommand=new RelayCommand(ToggleSolar3D);
+        SolarPreviousCommand=new RelayCommand(()=>SetSolarDate(_solarJd-30));
+        SolarNextCommand=new RelayCommand(()=>SetSolarDate(_solarJd+30));
+        SolarTodayCommand=new RelayCommand(()=>SetSolarDate(DateTime.UtcNow.Subtract(DateTime.UnixEpoch).TotalDays+2440587.5+69.184/86400));
+        SolarInnerCommand=new RelayCommand(()=>{ClearSolarFocus();Camera.Target=System.Numerics.Vector3.Zero;Camera.Distance=Camera.Distance>12?5:78;});
         SolarMapCommand = new RelayCommand( () => {
             _solarMap = !_solarMap;
             if ( _solarMap ) LoadSolarSnapshot( );
@@ -180,12 +250,13 @@ public sealed class CommandDeck : Observable {
         PatrolCommand = new RelayCommand( () => Simulation.Order( SelectedShip.Vessel, Mission.Patrol ) );
         RecallCommand = new RelayCommand( () => Simulation.Order( SelectedShip.Vessel, Mission.Return ) );
         FocusCommand = new RelayCommand( () => {
+            if(Solar3D)return;
             var position = SelectedShip.Vessel.Position;
             Camera.Target = position; Camera.Distance = 2.8f;
             Camera.Yaw = MathF.Atan2( position.X, position.Z ); Camera.Pitch = 0.24f;
             AutoCamera = false; FollowSelection = true;
         } );
-        ResetCameraCommand = new RelayCommand( () => { Camera.Reset( ); FollowSelection = false; AutoCamera = false; } );
+        ResetCameraCommand = new RelayCommand( () => { Camera.Reset( ); ClearSolarFocus(); FollowSelection = false; AutoCamera = false; } );
         IncreaseUiCommand = new RelayCommand( () => InterfaceScale += 0.1f );
         DecreaseUiCommand = new RelayCommand( () => InterfaceScale -= 0.1f );
         LaunchCommand = new RelayCommand( () => {
@@ -209,15 +280,26 @@ public sealed class CommandDeck : Observable {
     }
     public void Tick( double dt, float width, float height, float scale ) {
         var previousTarget = Camera.Target;
+        double before=Simulation.Time;
         Simulation.Tick( dt );
-        if ( FollowSelection ) {
+        if(Solar3D) {
+            if(SolarClockRunning && Simulation.Time>before) {
+                _solarJd=Math.Min(2469807.5,_solarJd+(Simulation.Time-before)*DaysPerSecond);
+                SolarStates=ApproximateEphemeris.At(_solarJd);
+            }
+            if(_solarFocus>=0 && _solarFocus<SolarStates.Count)Camera.Target=SolarPosition(SolarStates[_solarFocus]);
+            _solarUiTime+=dt;
+            if(_solarUiTime>=.1||dt==0) { _solarUiTime=0; Notify(nameof(SolarDateText)); }
+            LayoutSolarLabels(width,height,scale);
+        }
+        if ( FollowSelection && !Solar3D ) {
             Camera.Target = SelectedShip.Vessel.Position;
             float turn = MathF.Atan2( Camera.Target.X, Camera.Target.Z ) - MathF.Atan2( previousTarget.X, previousTarget.Z );
             Camera.Yaw += MathF.IEEERemainder( turn, MathF.Tau );
         }
         if ( AutoCamera ) Camera.Yaw += (float)dt * 0.055f;
         _notifyTime += dt;
-        LayoutLabels( width, height, scale );
+        if(Solar3D) { foreach(var ship in Ships)ship.PlaceLabel(default,default,scale,false); } else LayoutLabels( width, height, scale );
         if ( _notifyTime < 0.1 ) return;
         _notifyTime = 0;
         foreach ( var ship in Ships ) ship.Refresh( );
@@ -252,6 +334,18 @@ public sealed class CommandDeck : Observable {
         }
     }
     public bool SelectAt( float x, float y, float width, float height ) {
+        if(Solar3D) {
+            float bestSolar=32*32; int selected=-1;
+            for(int i=0;i<SolarStates.Count;i++) {
+                if(!Camera.Project(SolarPosition(SolarStates[i]),width,height,out var at))continue;
+                float d=System.Numerics.Vector2.DistanceSquared(at,new(x,y));
+                if(d<bestSolar){bestSolar=d;selected=i;}
+            }
+            if(selected<0)return false;
+            _solarFocus=selected; Camera.Target=SolarPosition(SolarStates[selected]);
+            Camera.Distance=Math.Max(.12f,SolarRadius(selected)*7);
+            return true;
+        }
         foreach ( var ship in Ships ) {
             if ( ship.MarkerVisibility == N.Visibility.Visible && ship.LabelBounds.Contains( x, y ) ) { SelectedShip = ship; return true; }
         }

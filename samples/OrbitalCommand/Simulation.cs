@@ -87,6 +87,7 @@ public readonly record struct ScreenViewport( float X, float Y, float Width, flo
 }
 
 public sealed class OrbitCamera {
+    public bool SolarMode { get; set; }
     public float Yaw { get; set; } = 0.35f;
     public float Pitch { get; set; } = 0.46f;
     public float Distance { get; set; } = 5.6f;
@@ -98,7 +99,7 @@ public sealed class OrbitCamera {
         get {
             Vector3 position = Target + Distance * new Vector3( MathF.Cos( Pitch ) * MathF.Sin( Yaw ),
                 MathF.Sin( Pitch ), MathF.Cos( Pitch ) * MathF.Cos( Yaw ) );
-            return position.LengthSquared( ) < 1.35f * 1.35f ? Vector3.Normalize( position + new Vector3( 0, 0.0001f, 0 ) ) * 1.35f : position;
+            return !SolarMode && position.LengthSquared( ) < 1.35f * 1.35f ? Vector3.Normalize( position + new Vector3( 0, 0.0001f, 0 ) ) * 1.35f : position;
         }
     }
     public Vector3 Forward => Vector3.Normalize( Target - Position );
@@ -113,21 +114,21 @@ public sealed class OrbitCamera {
         float unit = 2 * Distance * TanHalfFov / Math.Max( GetViewport( width, height ).Height, 1 );
         Target += (-Right * dx + Up * dy) * unit;
     }
-    public void Zoom( float wheel ) => Distance = Math.Clamp( Distance * MathF.Exp( -wheel * 0.0008f ), 2.5f, 13 );
-    public void Reset( ) { Yaw = 0.35f; Pitch = 0.46f; Distance = 5.6f; Target = Vector3.Zero; }
+    public void Zoom( float wheel ) => Distance = Math.Clamp( Distance * MathF.Exp( -wheel * 0.0008f ), SolarMode ? 0.12f : 2.5f, SolarMode ? 180f : 13f );
+    public void Reset( ) { Yaw = 0.35f; Pitch = 0.46f; Distance = SolarMode ? 78f : 5.6f; Target = Vector3.Zero; }
 
     public bool Project( Vector3 position, float width, float height, out Vector2 pixel ) {
         Vector3 delta = position - Position;
         float z = Vector3.Dot( delta, Forward );
         pixel = default;
-        if ( z <= 0.05f ) return false;
+        if ( z <= (SolarMode ? 0.0001f : 0.05f) ) return false;
         var viewport = GetViewport( width, height );
         pixel = new( viewport.X + viewport.Width * 0.5f + Vector3.Dot( delta, Right ) / (z * TanHalfFov) * viewport.Height * 0.5f,
             viewport.Y + viewport.Height * 0.5f - Vector3.Dot( delta, Up ) / (z * TanHalfFov) * viewport.Height * 0.5f );
         Vector3 ray = Vector3.Normalize( delta );
         float b = Vector3.Dot( Position, ray ), c = Position.LengthSquared( ) - 1;
         float h = b * b - c;
-        bool occluded = h > 0 && -b - MathF.Sqrt( h ) > 0 && -b - MathF.Sqrt( h ) < delta.Length( ) - 0.08f;
+        bool occluded = !SolarMode && h > 0 && -b - MathF.Sqrt( h ) > 0 && -b - MathF.Sqrt( h ) < delta.Length( ) - 0.08f;
         return !occluded && viewport.Contains( pixel.X, pixel.Y );
     }
 }

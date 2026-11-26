@@ -142,6 +142,11 @@ static class Program {
             var sol=ApproximateEphemeris.At(2451545.0);
             Check(sol.Count==8 && Math.Abs(Math.Sqrt(sol[2].X*sol[2].X+sol[2].Y*sol[2].Y+sol[2].Z*sol[2].Z)-.9833)<.003,"J2000 Earth distance mismatch.");
             Check(sol.All(p=>double.IsFinite(p.X)&&double.IsFinite(p.Y)&&double.IsFinite(p.Z)),"Nonfinite ephemeris.");
+            deck.Solar3DCommand.Execute(null); Check(deck.Solar3D&&deck.Camera.SolarMode&&deck.SolarStates.Count==8,"3D solar mode failed.");
+            var earthBefore=deck.SolarStates[2];
+            deck.SolarNextCommand.Execute(null);
+            Check(deck.SolarStates[2].JulianDateTdb>earthBefore.JulianDateTdb&&deck.SolarStates[2].X!=earthBefore.X,"Solar epoch did not advance.");
+            deck.Solar3DCommand.Execute(null); Check(!deck.Camera.SolarMode&&!deck.Solar3D,"Local view did not restore.");
             deck.IncreaseUiCommand.Execute( null ); Check( deck.InterfaceScale > 1, "Interface scaling command failed." );
             deck.DecreaseUiCommand.Execute( null );
             for ( int i = 0; i < 1400; i++ ) deck.Tick( 1.0 / 60, width, height, scale );
