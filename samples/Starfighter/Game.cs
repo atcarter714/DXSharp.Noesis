@@ -310,7 +310,7 @@ public sealed class StarfighterGame : ObservableObject {
         for ( int i = _asteroids.Count - 1; i >= 0; i-- ) {
             Asteroid a = _asteroids[i];
             if ( a.OrbitSpeed != 0 ) {
-                float angle = a.OrbitSpeed * dt, c = MathF.Cos( angle ), s = MathF.Sin( angle );
+                float angleF = a.OrbitSpeed * dt, c = MathF.Cos( angleF ), s = MathF.Sin( angleF );
                 a.Position = new( a.Position.X * c + a.Position.Z * s, a.Position.Y, -a.Position.X * s + a.Position.Z * c );
             } else a.Position += a.Velocity * dt;
             a.Rotation += a.Spin * dt; a.RotationX += a.Spin * 0.37f * dt; a.RotationZ -= a.Spin * 0.21f * dt;
