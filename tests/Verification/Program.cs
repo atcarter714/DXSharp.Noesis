@@ -37,7 +37,7 @@ static class Program {
         N.GUI.LoadApplicationResources("Theme/NoesisTheme.DarkBlue.xaml");
         string xaml=sample=="orbital"?"Dashboard.xaml":"Cockpit.xaml";
         Stage("LoadXaml "+xaml);
-        using var content=(N.FrameworkElement)N.GUI.LoadXaml(xaml);
+        var content=(N.FrameworkElement)N.GUI.LoadXaml(xaml);
         object? model=null;
         if(bind) {
             Stage("Construct view model");
@@ -46,7 +46,7 @@ static class Program {
             content.DataContext=model;
         }
         Stage("CreateView (no D3D12 device or renderer)");
-        using var view=N.GUI.CreateView(content);
+        var view=N.GUI.CreateView(content);
         Stage("SetSize and Activate");
         view.SetSize(1600,960); view.Activate();
         Stage("First Update"); view.Update(.016);
