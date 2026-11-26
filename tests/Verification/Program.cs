@@ -115,7 +115,13 @@ static class Program {
             router.Wheel( cx, cy, 120 );
             Check( deck.Camera.Distance < distance, "World wheel input was swallowed by Noesis." );
             yaw = deck.Camera.Yaw;
-            router.Down( 80, 140, N.MouseButton.Left ); router.Move( cx, cy ); router.Up( cx, cy, N.MouseButton.Left );
+            var fleetPanel=Find<N.FrameworkElement>("FleetPanel");
+            var panelPoint=fleetPanel.PointToScreen(new N.Point(fleetPanel.ActualWidth/2,Math.Min(20,fleetPanel.ActualHeight/2)));
+            int px=(int)panelPoint.X, py=(int)panelPoint.Y;
+            Check(input.BlocksSceneAt(px,py),"Fleet panel did not block scene input.");
+            router.Down(px,py,N.MouseButton.Left);
+            Check(router.Owner==PointerOwner.Interface,"Panel gesture acquired scene ownership.");
+            router.Move(cx,cy); router.Up(cx,cy,N.MouseButton.Left);
             Check( deck.Camera.Yaw == yaw, "Dragging from a panel into the world moved the camera." );
             router.Down( cx, cy, N.MouseButton.Right ); router.Cancel( );
             yaw = deck.Camera.Yaw; router.Move( cx + 80, cy );

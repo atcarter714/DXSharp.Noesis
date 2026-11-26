@@ -1,5 +1,5 @@
 using System.Collections.ObjectModel;
-using System.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
@@ -7,20 +7,9 @@ using N = Noesis;
 
 namespace Starfighter;
 
-public abstract class ObservableObject : INotifyPropertyChanged {
-    public event PropertyChangedEventHandler? PropertyChanged;
-    protected void Notify( [CallerMemberName] string? name = null ) => PropertyChanged?.Invoke( this, new( name ) );
-    protected bool Set<T>( ref T field, T value, [CallerMemberName] string? name = null ) {
-        if ( EqualityComparer<T>.Default.Equals( field, value ) ) return false;
-        field = value; Notify( name ); return true;
-    }
-}
-
-public sealed class ActionCommand( Action action, Func<bool>? canExecute = null ) : ICommand {
-    public event EventHandler? CanExecuteChanged;
-    public bool CanExecute( object? parameter ) => canExecute?.Invoke( ) ?? true;
-    public void Execute( object? parameter ) { if ( CanExecute( parameter ) ) action( ); }
-    public void Refresh( ) => CanExecuteChanged?.Invoke( this, EventArgs.Empty );
+public abstract class ObservableObject : CommunityToolkit.Mvvm.ComponentModel.ObservableObject {
+    protected void Notify( [CallerMemberName] string? name = null ) => OnPropertyChanged( name );
+    protected bool Set<T>( ref T field, T value, [CallerMemberName] string? name = null ) => SetProperty( ref field, value, name );
 }
 
 public enum SoundCue { Cannon, Impact, Explosion, BoostOn, BoostOff, HullHit, Lock, Overheat }
@@ -195,7 +184,7 @@ public sealed class StarfighterGame : ObservableObject {
 
     public ICommand FireCommand { get; }
     public ICommand BoostCommand { get; }
-    public ActionCommand PauseCommand { get; }
+    public RelayCommand PauseCommand { get; }
     public ICommand RestartCommand { get; }
     public ICommand FullscreenCommand { get; }
     public ICommand TargetCycleCommand { get; }
@@ -204,15 +193,15 @@ public sealed class StarfighterGame : ObservableObject {
     public ICommand CenterLookCommand { get; }
 
     public StarfighterGame( ) {
-        FireCommand = new ActionCommand( FireOnce );
-        BoostCommand = new ActionCommand( ToggleBoost );
-        PauseCommand = new ActionCommand( () => Paused = !Paused, () => !GameOver );
-        RestartCommand = new ActionCommand( Restart );
-        FullscreenCommand = new ActionCommand( () => ToggleFullscreen?.Invoke( ) );
-        TargetCycleCommand = new ActionCommand( CycleTarget );
-        SoundCommand = new ActionCommand( () => SoundEnabled = !SoundEnabled );
-        ViewCommand = new ActionCommand( () => ChaseView = !ChaseView );
-        CenterLookCommand = new ActionCommand( CenterLook );
+        FireCommand = new RelayCommand( FireOnce );
+        BoostCommand = new RelayCommand( ToggleBoost );
+        PauseCommand = new RelayCommand( () => Paused = !Paused, () => !GameOver );
+        RestartCommand = new RelayCommand( Restart );
+        FullscreenCommand = new RelayCommand( () => ToggleFullscreen?.Invoke( ) );
+        TargetCycleCommand = new RelayCommand( CycleTarget );
+        SoundCommand = new RelayCommand( () => SoundEnabled = !SoundEnabled );
+        ViewCommand = new RelayCommand( () => ChaseView = !ChaseView );
+        CenterLookCommand = new RelayCommand( CenterLook );
         for ( int i = 0; i < 16; i++ ) RadarContacts.Add( new RadarContact { Size = i < 4 ? 5 : 3 } );
         SeedAsteroidBelt( 138 );
         AddFeed( "VANGUARD / FLIGHT COMPUTER ONLINE" );
@@ -542,7 +531,7 @@ public sealed class StarfighterGame : ObservableObject {
         HullBarWidth = 174 * _hull / 100; ShieldBarWidth = 174 * _shield / 100;
         HeatBarWidth = 174 * _heat / 100; BoostBarWidth = 174 * _boostEnergy / 100;
         ContactCountText = $"{_asteroids.Count:000} CONTACTS";
-        PauseCommand.Refresh( );
+        PauseCommand.NotifyCanExecuteChanged( );
     }
 
     private void ToggleBoost( ) {
@@ -588,6 +577,6 @@ public sealed class StarfighterGame : ObservableObject {
         PauseVisibility = GameOverVisibility = DamageVisibility = N.Visibility.Collapsed;
         TargetVisibility = N.Visibility.Collapsed;
         _lockedTarget = null; SeedAsteroidBelt( 138 ); Status = "SYSTEMS NOMINAL"; ComboText = "CHAIN —";
-        AddFeed( "FLIGHT REINITIALIZED // K-09 PATROL" ); PauseCommand.Refresh( ); RefreshReadouts( 0.1 );
+        AddFeed( "FLIGHT REINITIALIZED // K-09 PATROL" ); PauseCommand.NotifyCanExecuteChanged( ); RefreshReadouts( 0.1 );
     }
 }

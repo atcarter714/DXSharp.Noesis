@@ -21,7 +21,7 @@ public sealed class SceneInput( CommandDeck deck, N.View view, OverlayInput hitT
         _button = button; _downX = _lastX = x; _downY = _lastY = y; _moved = false;
         // Noesis' handled return value is not a gesture-ownership contract.
         // Empty world surfaces and previously focused controls can consume events.
-        if ( hitTest.BlocksSceneAt( x, y ) ) {
+        if ( hitTest.BlocksSceneAt( x, y ) || !deck.Camera.GetViewport( Width, Height ).Contains( x, y ) ) {
             Owner = PointerOwner.Interface; UiClicks++;
             view.MouseMove( x, y ); view.MouseButtonDown( x, y, button );
             return;
@@ -52,7 +52,7 @@ public sealed class SceneInput( CommandDeck deck, N.View view, OverlayInput hitT
         Owner = PointerOwner.None; _moved = false;
     }
     public void Wheel( int x, int y, int delta ) {
-        if ( Owner == PointerOwner.Scene || (Owner != PointerOwner.Interface && !hitTest.BlocksSceneAt( x, y )) )
+        if ( Owner == PointerOwner.Scene || (Owner != PointerOwner.Interface && !hitTest.BlocksSceneAt( x, y ) && deck.Camera.GetViewport( Width, Height ).Contains( x, y )) )
             deck.Camera.Zoom( delta );
         else view.MouseWheel( x, y, delta );
     }
