@@ -34,7 +34,7 @@ Build and run both samples on Windows, then run tests/Verification. Check the tw
 
 ## Live 3D SOL and controls (follow-up)
 
-The header's **3D SOL** button selects a GPU-rendered analytic ray/sphere viewport, distinct from the existing **SOL** atlas. Drag to orbit, middle drag to pan, wheel to zoom, click a visible planet to focus, and use the date controls to advance or rewind the Julian epoch. The rate is in simulated days per second; the existing simulation pause also pauses the date. The model evaluates the published JPL 1800–2050 fitted elements in double precision and uses the Horizons cache epoch as its starting date, not the cached positions as a continuously valid ephemeris. Earth means the Earth–Moon barycenter. Circular orbit guides, ecliptic Saturn rings, procedural surface colors and procedural directional sky are illustrative. The downloaded artwork remains in the atlas; the 3D renderer does not sample it yet. Radius exaggeration uses a cap and a minimum apparent planet size except at true scale. Planet labels are culled for overlaps; picking is screen-space. Local fleet play remains separate and continues while browsing SOL.
+The header's **3D SOL** button selects a GPU-rendered analytic ray/sphere viewport, distinct from the existing **SOL** atlas. Drag to orbit, middle drag to pan, wheel to zoom, click a visible planet to focus, and use the date controls to advance or rewind the Julian epoch. The rate is in simulated days per second; the existing simulation pause also pauses the date. The model evaluates the published JPL 1800–2050 fitted elements in double precision and prefers a validated Horizons time-series cache when present. A single snapshot is used only at its exact epoch. Earth means the Earth–Moon barycenter in fitted-element mode; the actual Earth center is used in Horizons mode. Circular orbit guides, ecliptic Saturn rings, procedural surface colors and procedural directional sky are illustrative. The downloaded artwork remains in the atlas; the 3D renderer does not sample it yet. Radius exaggeration uses a cap and a minimum apparent planet size except at true scale. Planet labels are culled for overlaps; picking is screen-space. Local fleet play remains separate and continues while browsing SOL.
 
 Ship transfers use bounded radial acceleration and smooth heading changes, coast/flip/burn/brake states and throttle-dependent exhaust. This is a controlled flight model, not a two-body transfer integrator.
 
@@ -49,3 +49,11 @@ dotnet run --project samples/Starfighter
 ```
 
 These values are in the already baked mesh coordinates. They are not a visually qualified seat mount. Right mouse steers and middle mouse head-looks even over HUD backgrounds; left mouse still gives controls priority. CommunityToolkit.Mvvm 8.4.2 provides observable properties and relay commands in both samples and the linked-source verification project. Regenerate NuGet lockfiles with a normal restore before locked-mode CI. Windows runtime and HLSL qualification pending.
+
+### Real ephemeris range
+
+```powershell
+python eng/assets/fetch-horizons.py --days 365 --step-days 1
+```
+
+This writes Data/horizons-series.csv (plus provenance) using eight sequential requests. Cubic Hermite interpolation uses position and velocity samples in AU/AU-day. No extrapolation: outside the cache range the display explicitly reports fitted-element mode. Daily samples are recommended; seven-day spacing is accepted but less accurate, especially for Mercury. The default no-argument command still writes the single-epoch CSV. The new range query requires a connected test against the official Horizons API: https://ssd-api.jpl.nasa.gov/doc/horizons.html.

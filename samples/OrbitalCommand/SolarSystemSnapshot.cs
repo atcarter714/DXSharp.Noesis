@@ -10,7 +10,7 @@ public static class SolarSystemSnapshot {
     private static readonly (int Id, string Name)[] Expected = [
         (199, "Mercury"), (299, "Venus"), (399, "Earth"), (499, "Mars"),
         (599, "Jupiter"), (699, "Saturn"), (799, "Uranus"), (899, "Neptune") ];
-    public static IReadOnlyList<PlanetState> Load( string path ) {
+    internal static List<PlanetState> ReadRows( string path ) {
         using var stream = File.OpenText( path );
         if ( stream.ReadLine( ) != "id,name,jd_tdb,x_au,y_au,z_au,vx_au_day,vy_au_day,vz_au_day" )
             throw new InvalidDataException( "Unexpected Horizons cache schema." );
@@ -24,10 +24,13 @@ public static class SolarSystemSnapshot {
             if ( values.Any( value => !double.IsFinite( value ) ) ) throw new InvalidDataException( "Invalid Horizons state." );
             states.Add( new( id, fields[1], values[0], values[1], values[2], values[3], values[4], values[5], values[6] ) );
         }
-        if ( states.Count != Expected.Length || states.Select( s => s.Id ).Distinct( ).Count( ) != Expected.Length ||
-             states.Select( s => s.JulianDateTdb ).Distinct( ).Count( ) != 1 )
-            throw new InvalidDataException( "Horizons cache must contain all eight planets at one epoch." );
-        return states.OrderBy( s => s.Id ).ToArray( );
+        return states;
+    }
+    public static IReadOnlyList<PlanetState> Load(string path) {
+        var states=ReadRows(path);
+        if(states.Count!=Expected.Length||states.Select(s=>s.Id).Distinct().Count()!=Expected.Length||states.Select(s=>s.JulianDateTdb).Distinct().Count()!=1)
+            throw new InvalidDataException("Horizons cache must contain all eight planets at one epoch.");
+        return states.OrderBy(s=>s.Id).ToArray();
     }
 }
 
@@ -95,5 +98,48 @@ public static class SolarArtwork {
         if(!_enabled || !File.Exists(Path.Combine(AppContext.BaseDirectory,"Ui","Solar",file)))return null;
         if(!Images.TryGetValue(file,out var image))Images.Add(file,image=new Noesis.BitmapImage(new Uri("Solar/"+file,UriKind.Relative)));
         return image;
+    }
+}
+
+
+/// <summary>Bounded interpolation of geometric JPL positions and AU/day velocities.
+/// Outside the validated cache this class refuses to extrapolate.</summary>
+public sealed class HorizonsSeries {
+    private readonly PlanetState[][] _frames;
+    private readonly double[] _epochs;
+    public double Start=>_epochs[0];
+    public double End=>_epochs[^1];
+    private HorizonsSeries(PlanetState[][] frames) {
+        _frames=frames; _epochs=frames.Select(f=>f[0].JulianDateTdb).ToArray();
+    }
+    public static HorizonsSeries Load(string path) {
+        var frames=SolarSystemSnapshot.ReadRows(path).GroupBy(s=>s.JulianDateTdb).OrderBy(g=>g.Key)
+            .Select(g=>g.OrderBy(s=>s.Id).ToArray()).ToArray();
+        if(frames.Length<2||frames.Length>3651||frames.Any(f=>f.Length!=8||f.Select(s=>s.Id).Distinct().Count()!=8))
+            throw new InvalidDataException("Horizons series requires all eight bodies at each epoch.");
+        for(int i=1;i<frames.Length;i++) {
+            double h=frames[i][0].JulianDateTdb-frames[i-1][0].JulianDateTdb;
+            if(!(h>0&&h<=7.000001))throw new InvalidDataException("Horizons series spacing exceeds seven days.");
+        }
+        return new(frames);
+    }
+    public bool TryAt(double jd,out IReadOnlyList<PlanetState> states) {
+        states=[];
+        if(!double.IsFinite(jd)||jd<Start||jd>End)return false;
+        int exact=Array.BinarySearch(_epochs,jd);
+        if(exact>=0){states=_frames[exact];return true;}
+        int hi=~exact,lo=hi-1;
+        double h=_epochs[hi]-_epochs[lo],u=(jd-_epochs[lo])/h;
+        var values=new PlanetState[8];
+        for(int i=0;i<8;i++)values[i]=Interpolate(_frames[lo][i],_frames[hi][i],jd,u,h);
+        states=values; return true;
+    }
+    internal static PlanetState Interpolate(PlanetState a,PlanetState b,double jd,double u,double h) {
+        double u2=u*u,u3=u2*u;
+        (double p,double v) axis(double p0,double v0,double p1,double v1) => (
+            (2*u3-3*u2+1)*p0+(u3-2*u2+u)*h*v0+(-2*u3+3*u2)*p1+(u3-u2)*h*v1,
+            ((6*u2-6*u)*p0+(-6*u2+6*u)*p1)/h+(3*u2-4*u+1)*v0+(3*u2-2*u)*v1);
+        var x=axis(a.X,a.Vx,b.X,b.Vx);var y=axis(a.Y,a.Vy,b.Y,b.Vy);var z=axis(a.Z,a.Vz,b.Z,b.Vz);
+        return new(a.Id,a.Name,jd,x.p,y.p,z.p,x.v,y.v,z.v);
     }
 }
