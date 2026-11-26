@@ -39,6 +39,7 @@ public sealed class SceneInput( CommandDeck deck, N.View view, OverlayInput hitT
                 deck.AutoCamera = false;
                 if ( _button == N.MouseButton.Middle ) {
                     deck.FollowSelection = false;
+                    deck.ClearSolarFocus();
                     deck.Camera.Pan( x - _lastX, y - _lastY, Width, Height );
                 } else deck.Camera.Orbit( (x - _lastX) / scale, (y - _lastY) / scale );
             }

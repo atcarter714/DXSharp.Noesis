@@ -10,6 +10,9 @@ public sealed class SceneRenderer : IDisposable {
     private readonly GraphicsDevice _device;
     private readonly RootSignature _root;
     private readonly PipelineState _planetPipeline, _meshPipeline;
+    private readonly RootSignature _solarRoot;
+    private readonly PipelineState _solarPipeline;
+    private readonly uint[] _solarConstants=new uint[60];
     private readonly Mesh _ship, _station;
     private DepthTarget? _depth;
     private readonly uint[] _constants = new uint[40];
@@ -42,6 +45,14 @@ public sealed class SceneRenderer : IDisposable {
                 } catch { _meshPipeline.Dispose( ); throw; }
             } catch { _planetPipeline.Dispose( ); throw; }
         } catch { _root.Dispose( ); throw; }
+        try {
+            _solarRoot=device.CreateGraphicsConstantsRootSignature(60);
+            try {
+                using var compiler=new ShaderCompiler();
+                string solar=File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"SolarScene.hlsl"));
+                _solarPipeline=device.CreateGraphicsPipeline(_solarRoot,compiler.Compile(solar,"VSMain","vs_6_0"),compiler.Compile(solar,"PSMain","ps_6_0"),format);
+            } catch { _solarRoot.Dispose(); throw; }
+        } catch { _station.Dispose(); _ship.Dispose(); _meshPipeline.Dispose(); _planetPipeline.Dispose(); _root.Dispose(); throw; }
     }
 
     public void Resize( uint width, uint height ) {
@@ -54,6 +65,7 @@ public sealed class SceneRenderer : IDisposable {
 
     public void Record( GraphicsCommandList commands, RenderTargetView target, uint width, uint height, CommandDeck deck ) {
         if ( _depth is null ) throw new InvalidOperationException( "Resize the scene before drawing." );
+        if(deck.Solar3D){RecordSolar(commands,target,width,height,deck);return;}
         Put( 0, deck.Camera.Position, (float)deck.Simulation.Time );
         Put( 4, deck.Camera.Forward, (float)width / height );
         Put( 8, deck.Camera.Right, deck.Exposure );
@@ -84,5 +96,19 @@ public sealed class SceneRenderer : IDisposable {
         commands.SetGraphicsConstants( _constants ); commands.DrawMesh( _station ); MeshDraws++;
     }
 
-    public void Dispose( ) { _depth?.Dispose( ); _station.Dispose( ); _ship.Dispose( ); _meshPipeline.Dispose( ); _planetPipeline.Dispose( ); _root.Dispose( ); }
+    private void RecordSolar(GraphicsCommandList commands,RenderTargetView target,uint width,uint height,CommandDeck deck) {
+        void put(int i,float x)=>_solarConstants[i]=BitConverter.SingleToUInt32Bits(x);
+        void vec(int i,Vector3 v,float w){put(i,v.X);put(i+1,v.Y);put(i+2,v.Z);put(i+3,w);}
+        var vp=deck.Camera.GetViewport(width,height);
+        vec(0,deck.Camera.Position,deck.Exposure); vec(4,deck.Camera.Forward,OrbitCamera.TanHalfFov);
+        vec(8,deck.Camera.Right,deck.ShowOrbits?1:0); vec(12,deck.Camera.Up,deck.Atmosphere);
+        vec(16,new(vp.X,vp.Y,vp.Width),vp.Height);
+        vec(20,Vector3.Zero,deck.SolarRadius(-1));
+        for(int i=0;i<8;i++)vec(24+i*4,CommandDeck.SolarPosition(deck.SolarStates[i]),deck.SolarRadius(i));
+        vec(56,new(width,height,(float)deck.Simulation.Time),deck.BodyScale>1?1:0);
+        commands.SetViewport(width,height);commands.SetRenderTarget(target);commands.SetGraphicsPipeline(_solarPipeline);
+        commands.SetGraphicsConstants(_solarConstants);commands.Draw(3);MeshDraws=0;
+    }
+
+    public void Dispose( ) { _solarPipeline.Dispose(); _solarRoot.Dispose(); _depth?.Dispose( ); _station.Dispose( ); _ship.Dispose( ); _meshPipeline.Dispose( ); _planetPipeline.Dispose( ); _root.Dispose( ); }
 }
