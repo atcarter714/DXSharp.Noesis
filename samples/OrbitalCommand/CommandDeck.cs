@@ -1,16 +1,22 @@
 using System.Collections.ObjectModel;
-using CommunityToolkit.Mvvm.Input;
+using System.ComponentModel;
+using DXSharp.Noesis.Samples;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
 using N = Noesis;
 
 namespace OrbitalCommand;
 
-public abstract class Observable : CommunityToolkit.Mvvm.ComponentModel.ObservableObject {
-    protected void Notify( [CallerMemberName] string? name = null ) => OnPropertyChanged( name );
-    protected bool Set<T>( ref T field, T value, [CallerMemberName] string? name = null ) => SetProperty( ref field, value, name );
+// Keep the native Noesis reflection boundary limited to the original CLR contracts.
+// Toolkit commands remain an implementation detail behind ActionCommand.
+public abstract class Observable : INotifyPropertyChanged {
+    public event PropertyChangedEventHandler? PropertyChanged;
+    protected void Notify( [CallerMemberName] string? name = null ) => PropertyChanged?.Invoke( this, new( name ) );
+    protected bool Set<T>( ref T field, T value, [CallerMemberName] string? name = null ) {
+        if ( EqualityComparer<T>.Default.Equals( field, value ) ) return false;
+        field = value; Notify( name ); return true;
+    }
 }
-
 public sealed class ShipViewModel : Observable {
     public Vessel Vessel { get; }
     public string Name => Vessel.Name;
@@ -25,7 +31,7 @@ public sealed class ShipViewModel : Observable {
     public N.Visibility MarkerVisibility { get; private set; } = N.Visibility.Collapsed;
     public string MarkerText => $"◇  {Name[4..]}";
     public ICommand SelectCommand { get; }
-    public ShipViewModel( Vessel vessel, Action<ShipViewModel> select ) { Vessel = vessel; SelectCommand = new RelayCommand( () => select( this ) ); }
+    public ShipViewModel( Vessel vessel, Action<ShipViewModel> select ) { Vessel = vessel; SelectCommand = new ActionCommand( () => select( this ) ); }
     public void Refresh( ) { Notify( nameof(Status) ); Notify( nameof(Distance) ); Notify( nameof(Progress) ); }
     public ScreenViewport LabelBounds { get; private set; }
     public float AnchorX { get; private set; }
@@ -230,7 +236,7 @@ public sealed class CommandDeck : Observable {
     public ICommand RecallCommand { get; }
     public ICommand FocusCommand { get; }
     public ICommand ResetCameraCommand { get; }
-    public RelayCommand LaunchCommand { get; }
+    public ActionCommand LaunchCommand { get; }
     public ICommand BriefingCommand { get; }
     public ICommand DismissCommand { get; }
     public ICommand FullscreenCommand { get; }
@@ -240,47 +246,47 @@ public sealed class CommandDeck : Observable {
     public uint LastBatches { get; private set; }
 
     public CommandDeck( ) {
-        Solar3DCommand=new RelayCommand(ToggleSolar3D);
-        SolarPreviousCommand=new RelayCommand(()=>SetSolarDate(_solarJd-30));
-        SolarNextCommand=new RelayCommand(()=>SetSolarDate(_solarJd+30));
-        SolarTodayCommand=new RelayCommand(()=>SetSolarDate(DateTime.UtcNow.Subtract(DateTime.UnixEpoch).TotalDays+2440587.5+69.184/86400));
-        SolarInnerCommand=new RelayCommand(()=>{ClearSolarFocus();Camera.Target=System.Numerics.Vector3.Zero;Camera.Distance=Camera.Distance>12?5:78;});
-        SolarMapCommand = new RelayCommand( () => {
+        Solar3DCommand=new ActionCommand(ToggleSolar3D);
+        SolarPreviousCommand=new ActionCommand(()=>SetSolarDate(_solarJd-30));
+        SolarNextCommand=new ActionCommand(()=>SetSolarDate(_solarJd+30));
+        SolarTodayCommand=new ActionCommand(()=>SetSolarDate(DateTime.UtcNow.Subtract(DateTime.UnixEpoch).TotalDays+2440587.5+69.184/86400));
+        SolarInnerCommand=new ActionCommand(()=>{ClearSolarFocus();Camera.Target=System.Numerics.Vector3.Zero;Camera.Distance=Camera.Distance>12?5:78;});
+        SolarMapCommand = new ActionCommand( () => {
             _solarMap = !_solarMap;
             if ( _solarMap ) LoadSolarSnapshot( );
             Notify( nameof(SolarMapVisibility) ); Notify( nameof(SolarMapButton) );
         } );
-        SolarScaleCommand = new RelayCommand( () => {
+        SolarScaleCommand = new ActionCommand( () => {
             SolarZoom = SolarZoom > 0.1f ? 0 : 4;
         } );
-        SolarResetCommand = new RelayCommand( () => {
+        SolarResetCommand = new ActionCommand( () => {
             SolarZoom=0; BodyScale=600;
         } );
         foreach ( var ship in Simulation.Vessels ) Ships.Add( new( ship, Select ) );
         _selected = Ships[0];
-        PauseCommand = new RelayCommand( () => Paused = !Paused );
-        SurveyCommand = new RelayCommand( () => Simulation.Order( SelectedShip.Vessel, Mission.Survey ) );
-        PatrolCommand = new RelayCommand( () => Simulation.Order( SelectedShip.Vessel, Mission.Patrol ) );
-        RecallCommand = new RelayCommand( () => Simulation.Order( SelectedShip.Vessel, Mission.Return ) );
-        FocusCommand = new RelayCommand( () => {
+        PauseCommand = new ActionCommand( () => Paused = !Paused );
+        SurveyCommand = new ActionCommand( () => Simulation.Order( SelectedShip.Vessel, Mission.Survey ) );
+        PatrolCommand = new ActionCommand( () => Simulation.Order( SelectedShip.Vessel, Mission.Patrol ) );
+        RecallCommand = new ActionCommand( () => Simulation.Order( SelectedShip.Vessel, Mission.Return ) );
+        FocusCommand = new ActionCommand( () => {
             if(Solar3D)return;
             var position = SelectedShip.Vessel.Position;
             Camera.Target = position; Camera.Distance = 2.8f;
             Camera.Yaw = MathF.Atan2( position.X, position.Z ); Camera.Pitch = 0.24f;
             AutoCamera = false; FollowSelection = true;
         } );
-        ResetCameraCommand = new RelayCommand( () => { Camera.Reset( ); ClearSolarFocus(); FollowSelection = false; AutoCamera = false; } );
-        IncreaseUiCommand = new RelayCommand( () => InterfaceScale += 0.1f );
-        DecreaseUiCommand = new RelayCommand( () => InterfaceScale -= 0.1f );
-        LaunchCommand = new RelayCommand( () => {
+        ResetCameraCommand = new ActionCommand( () => { Camera.Reset( ); ClearSolarFocus(); FollowSelection = false; AutoCamera = false; } );
+        IncreaseUiCommand = new ActionCommand( () => InterfaceScale += 0.1f );
+        DecreaseUiCommand = new ActionCommand( () => InterfaceScale -= 0.1f );
+        LaunchCommand = new ActionCommand( () => {
             if (Simulation.Vessels.Count>=8 || Simulation.Credits<160) return;
             if ( !Simulation.Launch( ) ) return;
             var ship = new ShipViewModel( Simulation.Vessels[^1], Select ); Ships.Add( ship ); SelectedShip = ship;
             Notify( nameof(FleetCount) ); LaunchCommand!.NotifyCanExecuteChanged( );
         }, () => Simulation.Vessels.Count < 8 && Simulation.Credits >= 160 );
-        BriefingCommand = new RelayCommand( () => BriefingVisibility = N.Visibility.Visible );
-        DismissCommand = new RelayCommand( () => BriefingVisibility = N.Visibility.Collapsed );
-        FullscreenCommand = new RelayCommand( () => ToggleFullscreen?.Invoke( ) );
+        BriefingCommand = new ActionCommand( () => BriefingVisibility = N.Visibility.Visible );
+        DismissCommand = new ActionCommand( () => BriefingVisibility = N.Visibility.Collapsed );
+        FullscreenCommand = new ActionCommand( () => ToggleFullscreen?.Invoke( ) );
         Simulation.Event += AddEvent;
         AddEvent( "Kepler Anchorage online. Fleet telemetry synchronized." );
         AddEvent( "Select a vessel, then survey the outer ring or engage patrol." );

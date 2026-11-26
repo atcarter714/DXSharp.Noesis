@@ -8,7 +8,8 @@ using N = Noesis;
 static class Program {
     static int _checks, _errors ;
 
-    static int Main( ) {
+    [STAThread]
+    static int Main( string[] args ) {
         try {
             N.GUI.DisableInspector( ); N.GUI.DisableSocketInit( );
             N.Log.SetLogCallback( ( level, channel, message ) => {
@@ -16,11 +17,42 @@ static class Program {
                 if ( level == N.LogLevel.Error ) _errors++;
             } );
             N.GUI.Init( );
-            try { Verify( ); VerifyStarfighter( ); } finally { N.GUI.Shutdown( ); }
+            try {
+                if ( args.Length > 0 && args[0] == "--startup-probe" ) {
+                    if(args.Length<2||args.Length>3||args[1] is not ("orbital" or "starfighter")||(args.Length==3&&args[2] is not ("unbound" or "bound")))
+                        throw new ArgumentException("Usage: --startup-probe orbital|starfighter [unbound|bound]");
+                    ProbeStartup(args[1],args.Length!=3||args[2]=="bound");
+                } else { Verify( ); VerifyStarfighter( ); }
+            } finally { N.GUI.Shutdown( ); }
             Check( _errors == 0, "Noesis reported a XAML, font, or binding error." );
             Console.WriteLine( $"PASS: {_checks} checks — XAML, bindings, input, DPI, simulation, picking and mesh data." );
             return 0;
         } catch ( Exception error ) { Console.Error.WriteLine( error ); return 1; }
+    }
+    static void ProbeStartup( string sample, bool bind ) {
+        void Stage(string message) { Console.WriteLine("STARTUP: "+message); Console.Out.Flush(); }
+        Stage("Configure providers");
+        NoesisApp.Application.SetThemeProviders(new NoesisApp.LocalXamlProvider(Path.Combine(AppContext.BaseDirectory,"Ui")));
+        N.GUI.SetFontProvider(new ThemeFontProvider());
+        N.GUI.LoadApplicationResources("Theme/NoesisTheme.DarkBlue.xaml");
+        string xaml=sample=="orbital"?"Dashboard.xaml":"Cockpit.xaml";
+        Stage("LoadXaml "+xaml);
+        using var content=(N.FrameworkElement)N.GUI.LoadXaml(xaml);
+        object? model=null;
+        if(bind) {
+            Stage("Construct view model");
+            model=sample=="orbital"?(object)new CommandDeck():new Fighter.StarfighterGame();
+            Stage("Set DataContext");
+            content.DataContext=model;
+        }
+        Stage("CreateView (no D3D12 device or renderer)");
+        using var view=N.GUI.CreateView(content);
+        Stage("SetSize and Activate");
+        view.SetSize(1600,960); view.Activate();
+        Stage("First Update"); view.Update(.016);
+        Stage("Second Update"); view.Update(.032);
+        Stage("PASS");
+        GC.KeepAlive(model);
     }
     static void Verify( ) {
         NoesisApp.Application.SetThemeProviders( new NoesisApp.LocalXamlProvider( Path.Combine( AppContext.BaseDirectory, "Ui" ) ) );

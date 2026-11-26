@@ -95,9 +95,11 @@ internal static class Program {
         using var queue = device.CreateCommandQueue( );
         using var swap = device.CreateSwapChain( queue, window.Handle,
             (uint)window.ClientSize.Width, (uint)window.ClientSize.Height );
-        using var scene = new SceneRenderer( device, queue, swap.Format );
         using var heap = device.CreateRenderTargetHeap( swap.BufferCount );
+        Console.WriteLine("STARTUP: Create Noesis overlay"); Console.Out.Flush();
         using var overlay = new D3D12Overlay( device, content, swap.Format );
+        Console.WriteLine("STARTUP: Create scene renderer"); Console.Out.Flush();
+        using var scene = new SceneRenderer( device, queue, swap.Format );
         using var slot0 = new FrameSlot( device, smoke );
         using var slot1 = new FrameSlot( device, smoke );
         using var timer = new Forms.Timer { Interval = 1 };
