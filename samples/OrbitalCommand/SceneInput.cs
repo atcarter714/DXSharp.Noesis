@@ -64,6 +64,8 @@ public sealed class SceneInput( CommandDeck deck, N.View view, OverlayInput hitT
 }
 
 public static class DisplayMetrics {
+    public static float Scale( float width, float height, float dpi, float adjustment ) =>
+        Math.Min( Scale( height, dpi, adjustment ), Math.Min( width / 1080f, height / 740f ) );
     public static float Scale( float height, float dpi, float adjustment ) {
         float systemScale = Math.Max( dpi, 96 ) / 96;
         float largeDisplay = Math.Clamp( height / systemScale / 1100, 1, 1.25f );

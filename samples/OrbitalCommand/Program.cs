@@ -39,11 +39,13 @@ internal static class Program {
             N.GUI.Init( );
             try {
                 string uiDirectory = Path.Combine( AppContext.BaseDirectory, "Ui" );
-                NoesisApp.Application.SetThemeProviders( new NoesisApp.LocalXamlProvider( uiDirectory ) );
+                NoesisApp.Application.SetThemeProviders( new NoesisApp.LocalXamlProvider( uiDirectory ), textureProvider: new NoesisApp.LocalTextureProvider( uiDirectory ) );
                 N.GUI.SetFontProvider( new ThemeFontProvider( ) );
                 N.GUI.LoadApplicationResources( "Theme/NoesisTheme.DarkBlue.xaml" );
+                SolarArtwork.Initialize();
                 Run( device, smoke );
             } finally {
+                SolarArtwork.Clear();
                 N.GUI.Shutdown( );
             }
 
@@ -76,6 +78,8 @@ internal static class Program {
             ClientSize = smoke ? new( 1280, 840 ) : new( 1600, 960 ),
             MinimumSize = new( 1100, 780 )
         };
+        using var appIcon = System.Drawing.Icon.ExtractAssociatedIcon( System.Windows.Forms.Application.ExecutablePath );
+        if ( appIcon is not null ) window.Icon = appIcon;
         _ = window.Handle;
         float initialScale = window.DeviceDpi / 96f;
         if ( smoke ) {
@@ -102,7 +106,7 @@ internal static class Program {
         var targets = new RenderTargetView[buffers.Length];
         var clock = Stopwatch.StartNew( );
         var size = window.ClientSize;
-        float scale = DisplayMetrics.Scale( size.Height, window.DeviceDpi, deck.InterfaceScale );
+        float scale = DisplayMetrics.Scale( size.Width, size.Height, window.DeviceDpi, deck.InterfaceScale );
         long submitted = 0, completed = 0;
         int resizes = 0;
         bool sawUiDraw = false;
@@ -212,7 +216,7 @@ internal static class Program {
                 if ( window.WindowState == Forms.FormWindowState.Minimized || client.Width <= 0 || client.Height <= 0 )
                     return;
 
-                float currentScale = DisplayMetrics.Scale( client.Height, window.DeviceDpi, deck.InterfaceScale );
+                float currentScale = DisplayMetrics.Scale( client.Width, client.Height, window.DeviceDpi, deck.InterfaceScale );
                 if ( client != size || Math.Abs( currentScale - scale ) > 0.001f ) {
                     queue.WaitIdle( );
                     completed = submitted;

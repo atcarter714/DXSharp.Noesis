@@ -14,8 +14,8 @@
       },
       "DXSharp.Native": {
         "type": "Transitive",
-        "resolved": "0.4.0-preview.3",
-        "contentHash": "EB3zmXkkH0e8NgPWMiE+2wiGMB7fc7RD8K9FWy66jl7gvqK7eQrNYoK0oHQ0GvYUNbkY68K0cgogbeB7IUzSJQ=="
+        "resolved": "0.4.0-preview.4",
+        "contentHash": "7OhQUoOkeB0lzj7xwK7fU71+xqzyz06J4H5GvsBgAEeMh4QbIueSh7Pl5K8Aq3/q7yuwf22fyfMrQBiAM0PXiw=="
       },
       "Microsoft.Direct3D.D3D12": {
         "type": "Transitive",
@@ -38,17 +38,17 @@
       "dxsharp.noesis": {
         "type": "Project",
         "dependencies": {
-          "DXSharp.Core": "[0.4.0-preview.3, 0.4.0-preview.3]",
+          "DXSharp.Core": "[0.4.0-preview.4, )",
           "Noesis.GUI": "[4.0.1.18263, 4.0.1.18263]"
         }
       },
       "DXSharp.Core": {
         "type": "CentralTransitive",
-        "requested": "[0.4.0-preview.3, 0.4.0-preview.3]",
-        "resolved": "0.4.0-preview.3",
-        "contentHash": "5m/Ihd+Kk1z4Jp7dNMeyeXi8mZPTX7KJRPekqyttpiU5IyGwQAI+7Wy/OFj3CgQEhD7cj9IZAzQduHMDmVU6/Q==",
+        "requested": "[0.4.0-preview.4, )",
+        "resolved": "0.4.0-preview.4",
+        "contentHash": "0Xuvri+7zw+YMmNqGxqMgbZ+wm21igrLHnnNT0WAYHXeqsMfOl4cppjvO/w8gSYAPex9jLDCQHY2MuMXlVuNhA==",
         "dependencies": {
-          "DXSharp.Native": "0.4.0-preview.3",
+          "DXSharp.Native": "0.4.0-preview.4",
           "Microsoft.Direct3D.D3D12": "[1.620.2]",
           "Microsoft.Direct3D.DXC": "[1.9.2609.5]"
         }

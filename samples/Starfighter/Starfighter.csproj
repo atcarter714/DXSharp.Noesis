@@ -3,6 +3,7 @@
     <OutputType>Exe</OutputType>
     <AssemblyName>Arkaen.Starfighter</AssemblyName>
     <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationIcon>../../assets/branding/DXSharp.Noesis.ico</ApplicationIcon>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
