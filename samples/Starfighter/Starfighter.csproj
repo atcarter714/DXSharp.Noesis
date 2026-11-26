@@ -10,6 +10,7 @@
     <ProjectReference Include="../../src/DXSharp.Noesis/DXSharp.Noesis.csproj" />
     <PackageReference Include="Noesis.App" />
     <PackageReference Include="CommunityToolkit.Mvvm" />
+    <Compile Include="../Shared/ActionCommand.cs" Link="Shared/ActionCommand.cs" />
     <None Update="Ui/Avionics.xaml" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Ui/Cockpit.xaml" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Assets/cockpit.mesh" CopyToOutputDirectory="PreserveNewest" />

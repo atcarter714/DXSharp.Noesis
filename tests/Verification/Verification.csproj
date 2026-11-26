@@ -11,6 +11,7 @@
     <PackageReference Include="Noesis.GUI" />
     <PackageReference Include="Noesis.App" />
     <PackageReference Include="CommunityToolkit.Mvvm" />
+    <Compile Include="../../samples/Shared/ActionCommand.cs" Link="Shared/ActionCommand.cs" />
     <Compile Include="../../samples/OrbitalCommand/SceneInput.cs" Link="SceneInput.cs" />
     <Compile Include="../../samples/OrbitalCommand/Simulation.cs" Link="Simulation.cs" />
     <Compile Include="../../samples/OrbitalCommand/CommandDeck.cs" Link="CommandDeck.cs" />

@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
-using CommunityToolkit.Mvvm.Input;
+using System.ComponentModel;
+using DXSharp.Noesis.Samples;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Windows.Input;
@@ -7,11 +8,16 @@ using N = Noesis;
 
 namespace Starfighter;
 
-public abstract class ObservableObject : CommunityToolkit.Mvvm.ComponentModel.ObservableObject {
-    protected void Notify( [CallerMemberName] string? name = null ) => OnPropertyChanged( name );
-    protected bool Set<T>( ref T field, T value, [CallerMemberName] string? name = null ) => SetProperty( ref field, value, name );
+// Keep the native Noesis reflection boundary limited to the original CLR contracts.
+// Toolkit commands remain an implementation detail behind ActionCommand.
+public abstract class ObservableObject : INotifyPropertyChanged {
+    public event PropertyChangedEventHandler? PropertyChanged;
+    protected void Notify( [CallerMemberName] string? name = null ) => PropertyChanged?.Invoke( this, new( name ) );
+    protected bool Set<T>( ref T field, T value, [CallerMemberName] string? name = null ) {
+        if ( EqualityComparer<T>.Default.Equals( field, value ) ) return false;
+        field = value; Notify( name ); return true;
+    }
 }
-
 public enum SoundCue { Cannon, Impact, Explosion, BoostOn, BoostOff, HullHit, Lock, Overheat }
 
 public sealed class FeedItem {
@@ -184,7 +190,7 @@ public sealed class StarfighterGame : ObservableObject {
 
     public ICommand FireCommand { get; }
     public ICommand BoostCommand { get; }
-    public RelayCommand PauseCommand { get; }
+    public ActionCommand PauseCommand { get; }
     public ICommand RestartCommand { get; }
     public ICommand FullscreenCommand { get; }
     public ICommand TargetCycleCommand { get; }
@@ -193,15 +199,15 @@ public sealed class StarfighterGame : ObservableObject {
     public ICommand CenterLookCommand { get; }
 
     public StarfighterGame( ) {
-        FireCommand = new RelayCommand( FireOnce );
-        BoostCommand = new RelayCommand( ToggleBoost );
-        PauseCommand = new RelayCommand( () => { if(!GameOver)Paused=!Paused; }, () => !GameOver );
-        RestartCommand = new RelayCommand( Restart );
-        FullscreenCommand = new RelayCommand( () => ToggleFullscreen?.Invoke( ) );
-        TargetCycleCommand = new RelayCommand( CycleTarget );
-        SoundCommand = new RelayCommand( () => SoundEnabled = !SoundEnabled );
-        ViewCommand = new RelayCommand( () => ChaseView = !ChaseView );
-        CenterLookCommand = new RelayCommand( CenterLook );
+        FireCommand = new ActionCommand( FireOnce );
+        BoostCommand = new ActionCommand( ToggleBoost );
+        PauseCommand = new ActionCommand( () => { if(!GameOver)Paused=!Paused; }, () => !GameOver );
+        RestartCommand = new ActionCommand( Restart );
+        FullscreenCommand = new ActionCommand( () => ToggleFullscreen?.Invoke( ) );
+        TargetCycleCommand = new ActionCommand( CycleTarget );
+        SoundCommand = new ActionCommand( () => SoundEnabled = !SoundEnabled );
+        ViewCommand = new ActionCommand( () => ChaseView = !ChaseView );
+        CenterLookCommand = new ActionCommand( CenterLook );
         for ( int i = 0; i < 16; i++ ) RadarContacts.Add( new RadarContact { Size = i < 4 ? 5 : 3 } );
         SeedAsteroidBelt( 138 );
         AddFeed( "VANGUARD / FLIGHT COMPUTER ONLINE" );
