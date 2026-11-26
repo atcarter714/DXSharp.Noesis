@@ -248,8 +248,37 @@ static class Program {
             Check( !panel.TryPick( Vector3.Zero, Vector3.UnitX, out _, out _ ), "Parallel panel ray incorrectly hit." );
             Check( !panel.TryPick( Vector3.Zero, new( 2, 0, 1 ), out _, out _ ), "Ray outside the panel incorrectly hit." );
             var flightProbe = new Fighter.StarfighterGame( );
+            Vector3 initialNose = flightProbe.Forward, initialVelocity = flightProbe.Velocity;
             flightProbe.Steer( 0, -80 );
-            Check( flightProbe.Forward.Y > 0, "Moving the steering pointer up did not pitch the airframe up." );
+            Check( flightProbe.Forward == initialNose && flightProbe.AngularVelocity == Vector3.Zero, "Mouse event changed the airframe without advancing physics." );
+            flightProbe.Tick( .025, false, false, false, false, false, false, false, false, false, false, false, false, false, false );
+            Check( flightProbe.Forward.Y > 0, "Virtual flight stick did not command nose-up rotation." );
+            Check( Math.Abs( flightProbe.AngularVelocity.X ) <= Fighter.StarfighterGame.MaxAngularAcceleration.X * .025f + .0001f, "Mouse steering exceeded pitch acceleration." );
+            Check( flightProbe.Velocity == initialVelocity, "Rotation changed inertial linear velocity." );
+            flightProbe.ReleaseSteering( );
+            for ( int i = 0; i < 12; ++i )
+                flightProbe.Tick( .025, false, false, false, false, false, false, false, false, false, false, false, false, false, false );
+            Check( flightProbe.AngularVelocity.Length( ) < .0001f, "Released stick did not counter-thrust to zero rate." );
+            Check( flightProbe.Velocity == initialVelocity, "Vacuum coasting lost momentum." );
+            var keyProbe = new Fighter.StarfighterGame( );
+            for ( int i = 0; i < 12; ++i )
+                keyProbe.Tick( .025, false, true, true, false, false, true, false, false, false, false, false, false, false, false );
+            Check( keyProbe.Forward.Y > 0 && keyProbe.Right.Y < 0, "Pitch-up / roll-right convention incorrect." );
+            Check( Math.Abs( keyProbe.AngularVelocity.Y ) <= Fighter.StarfighterGame.MaxAngularRate.Y, "Yaw exceeded limited rate." );
+            var calibration = Fighter.CockpitCalibration.Bundled;
+            var cockpitChunks = Fighter.CockpitMeshFile.Load( Path.Combine( AppContext.BaseDirectory, "Assets", "cockpit.mesh" ) );
+            int removed = 0;
+            foreach ( var chunk in cockpitChunks ) {
+                var calibrated = calibration.Apply( chunk );
+                removed += (chunk.Indices.Length - calibrated.Indices.Length) / 3;
+                Check( calibrated.Vertices.Length == chunk.Vertices.Length, "Cockpit calibration changed vertex count." );
+                Check( calibrated.Vertices.All( v => float.IsFinite(v.Position.LengthSquared()) && Math.Abs(v.Normal.Length()-1) < .002f ), "Cockpit calibration generated invalid vertex data." );
+            }
+            Check( removed == 16, "Expected exactly 16 bundled windshield triangles to be excluded." );
+            var eye = calibration.Eye;
+            var probeMesh = new Fighter.MeshData( [new Fighter.Vertex(eye,Vector3.UnitY,Vector3.One),new Fighter.Vertex(eye-Vector3.UnitZ,-Vector3.UnitZ,Vector3.One),new Fighter.Vertex(eye+Vector3.UnitX,Vector3.UnitX,Vector3.One)], [0,1,2] );
+            var transformed = calibration.Apply( probeMesh );
+            Check( transformed.Vertices[0].Position.Length() < .0001f && Vector3.Distance(transformed.Vertices[1].Position,Vector3.UnitZ) < .0001f, "Baked cockpit forward does not match ship +Z." );
             flightProbe.CenterLook( );
             var beforeLook = flightProbe.Forward;
             flightProbe.Look( 0, -30 );

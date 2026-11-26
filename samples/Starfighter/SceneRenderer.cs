@@ -63,11 +63,12 @@ public sealed class SceneRenderer : IDisposable {
                                                 try {
                                                     string cockpitPath = Path.Combine( AppContext.BaseDirectory, "Assets", "cockpit.mesh" );
                                                     string? cockpitMode = Environment.GetEnvironmentVariable( "DXSHARP_COCKPIT_PREVIEW" );
-                                                    if ( cockpitMode == "1" && File.Exists( cockpitPath ) ) {
+                                                    if ( cockpitMode != "0" && File.Exists( cockpitPath ) ) {
                                                         var calibration=CockpitCalibration.FromEnvironment();
                                                         foreach ( MeshData chunk in CockpitMeshFile.Load( cockpitPath ) ) {
                                                             var calibrated=calibration.Apply(chunk);
-                                                            _importedCockpit.Add( device.CreateMesh<Vertex>( commands, calibrated.Vertices, calibrated.Indices ) );
+                                                            if ( calibrated.Indices.Length > 0 )
+                                                                _importedCockpit.Add( device.CreateMesh<Vertex>( commands, calibrated.Vertices, calibrated.Indices ) );
                                                         }
                                                     }
                                                     commands.Close( ); queue.Wait( queue.Submit( commands ) );
@@ -150,7 +151,7 @@ public sealed class SceneRenderer : IDisposable {
             commands.SetGraphicsConstants( _constants ); commands.DrawMesh( _pulse ); MeshDraws++;
         }
 
-        // Cockpit view is the default. C toggles to a chase camera so the complete
+        // Imported cockpit is the default when present. C toggles to a chase camera so the complete
         // procedurally modeled Viper hull and its twin afterburners can be inspected.
         if ( game.ChaseView ) {
             DrawMesh( commands, _exhaust, game.Position, 1, 0, 4, new( 0.35f, 0.78f, 1.25f ), game.Boosting ? 3.1f : 1.8f );

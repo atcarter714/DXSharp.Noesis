@@ -257,9 +257,9 @@
         <Border Background="#42152D3A" BorderBrush="#536C9AA0" BorderThickness="1" Padding="12" Margin="0,0,0,18">
           <StackPanel>
             <TextBlock Text="FLIGHT CONTROLS" Foreground="{StaticResource Ion}" FontSize="9" HorizontalAlignment="Center" Margin="0,0,0,8"/>
-            <TextBlock Text="ARROWS  PITCH / YAW       Q / E  ROLL" Foreground="#D1E3E4" FontSize="9" HorizontalAlignment="Center"/>
+            <TextBlock Text="↓ / ↑  PITCH UP / DOWN       ← / →  ROLL       Q / E  YAW" Foreground="#D1E3E4" FontSize="9" HorizontalAlignment="Center"/>
             <TextBlock Text="W / S  THRUST             A / D  STRAFE" Foreground="#D1E3E4" FontSize="9" HorizontalAlignment="Center" Margin="0,5,0,0"/>
-            <TextBlock Text="R / F  LIFT      RMB  STEER      MMB  FREE LOOK      LMB  AIM / FIRE" Foreground="#D1E3E4" FontSize="9" HorizontalAlignment="Center" Margin="0,5,0,0"/>
+            <TextBlock Text="R / F  LIFT      RMB  FLIGHT STICK      MMB  FREE LOOK      LMB  AIM / FIRE" Foreground="#D1E3E4" FontSize="9" HorizontalAlignment="Center" Margin="0,5,0,0"/>
             <TextBlock Text="SHIFT  AFTERBURNER           C  CHASE CAM" Foreground="#D1E3E4" FontSize="9" HorizontalAlignment="Center" Margin="0,5,0,0"/>
           </StackPanel>
         </Border>

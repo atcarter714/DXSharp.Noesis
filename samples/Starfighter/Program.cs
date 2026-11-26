@@ -126,7 +126,7 @@ internal static class Program {
             for ( int i = 0; i < buffers.Length; i++ ) { buffers[i]?.Dispose( ); buffers[i] = null; }
         }
         void ClearInput( ) {
-            keys.Clear( ); uiPointer = lookPointer = steering = firePointer = false; uiButton = null; game.ClearAim( );
+            keys.Clear( ); uiPointer = lookPointer = steering = firePointer = false; uiButton = null; game.ReleaseSteering( ); game.ClearAim( );
             if ( cursorHidden ) { Forms.Cursor.Show( ); cursorHidden = false; }
             view.Content.Mouse.Capture( null );
         }
@@ -142,7 +142,7 @@ internal static class Program {
                 view.MouseMove( e.X, e.Y ); view.MouseButtonDown( e.X, e.Y, button.Value );
                 window.Capture = true;
             } else if ( e.Button is Forms.MouseButtons.Right or Forms.MouseButtons.Middle ) {
-                steering = e.Button == Forms.MouseButtons.Right; lookPointer = true; window.Capture = true;
+                steering = e.Button == Forms.MouseButtons.Right; lookPointer = true; game.ReleaseSteering( ); window.Capture = true;
                 if ( !cursorHidden ) { Forms.Cursor.Hide( ); cursorHidden = true; }
                 Forms.Cursor.Position = window.PointToScreen( new System.Drawing.Point( window.ClientSize.Width / 2, window.ClientSize.Height / 2 ) );
             } else if ( e.Button == Forms.MouseButtons.Left ) {
@@ -171,6 +171,7 @@ internal static class Program {
             }
             if ( e.Button == Forms.MouseButtons.Left && firePointer ) { firePointer = false; game.ClearAim( ); }
             if ( lookPointer && e.Button == (steering ? Forms.MouseButtons.Right : Forms.MouseButtons.Middle) ) {
+                game.ReleaseSteering( );
                 lookPointer = steering = false;
                 if ( cursorHidden ) { Forms.Cursor.Show( ); cursorHidden = false; }
             }
@@ -185,7 +186,7 @@ internal static class Program {
         window.MouseCaptureChanged += ( _, _ ) => {
             if ( !window.Capture && (uiPointer || lookPointer || firePointer) ) {
                 if ( uiPointer && uiButton is { } button ) view.MouseButtonUp( lastMouseX, lastMouseY, button );
-                uiPointer = lookPointer = steering = firePointer = false; uiButton = null; game.ClearAim( );
+                uiPointer = lookPointer = steering = firePointer = false; uiButton = null; game.ReleaseSteering( ); game.ClearAim( );
                 if ( cursorHidden ) { Forms.Cursor.Show( ); cursorHidden = false; }
             }
         };
@@ -195,10 +196,12 @@ internal static class Program {
             if ( e.KeyCode is Forms.Keys.Escape or Forms.Keys.P ) { game.TogglePause( ); e.Handled = true; e.SuppressKeyPress = true; return; }
             if ( e.KeyCode == Forms.Keys.R && (game.GameOver || game.Paused) ) { game.RestartCommand.Execute( null ); e.Handled = true; e.SuppressKeyPress = true; return; }
             keys.Add( e.KeyCode );
+            if ( IsFlightKey( e.KeyCode ) ) { e.Handled = true; e.SuppressKeyPress = true; return; }
             var key = MapKey( e.KeyCode ); if ( key != N.Key.None ) e.Handled = view.KeyDown( key );
         };
         window.KeyUp += ( _, e ) => {
             keys.Remove( e.KeyCode );
+            if ( IsFlightKey( e.KeyCode ) ) { e.Handled = true; return; }
             var key = MapKey( e.KeyCode ); if ( key != N.Key.None ) e.Handled = view.KeyUp( key );
         };
         window.KeyPress += ( _, e ) => { if ( !char.IsControl( e.KeyChar ) ) e.Handled = view.Char( e.KeyChar ); };
@@ -233,9 +236,9 @@ internal static class Program {
                 double dt = smoke ? 1.0 / 60 : Math.Min( now - previous, 0.05 ); previous = now;
                 if ( firePointer ) game.AimAt( lastMouseX, lastMouseY, size.Width, size.Height );
                 game.Tick( dt,
-                    keys.Contains( Forms.Keys.Left ), keys.Contains( Forms.Keys.Right ),
-                    keys.Contains( Forms.Keys.Up ), keys.Contains( Forms.Keys.Down ),
                     keys.Contains( Forms.Keys.Q ), keys.Contains( Forms.Keys.E ),
+                    keys.Contains( Forms.Keys.Down ), keys.Contains( Forms.Keys.Up ),
+                    keys.Contains( Forms.Keys.Left ), keys.Contains( Forms.Keys.Right ),
                     keys.Contains( Forms.Keys.W ), keys.Contains( Forms.Keys.S ),
                     keys.Contains( Forms.Keys.A ), keys.Contains( Forms.Keys.D ),
                     keys.Contains( Forms.Keys.R ), keys.Contains( Forms.Keys.F ),
@@ -285,6 +288,10 @@ internal static class Program {
         Forms.MouseButtons.Middle => N.MouseButton.Middle, Forms.MouseButtons.XButton1 => N.MouseButton.XButton1,
         Forms.MouseButtons.XButton2 => N.MouseButton.XButton2, _ => null
     };
+    private static bool IsFlightKey( Forms.Keys key ) => key is Forms.Keys.W or Forms.Keys.A or Forms.Keys.S or Forms.Keys.D
+        or Forms.Keys.Q or Forms.Keys.E or Forms.Keys.R or Forms.Keys.F or Forms.Keys.Up or Forms.Keys.Down
+        or Forms.Keys.Left or Forms.Keys.Right or Forms.Keys.Space or Forms.Keys.ShiftKey or Forms.Keys.LShiftKey or Forms.Keys.RShiftKey;
+
     private static N.Key MapKey( Forms.Keys key ) => key switch {
         Forms.Keys.ControlKey => N.Key.LeftCtrl, Forms.Keys.ShiftKey => N.Key.LeftShift, Forms.Keys.Menu => N.Key.LeftAlt,
         _ => Enum.TryParse<N.Key>( key.ToString( ), true, out var mapped ) ? mapped : N.Key.None
