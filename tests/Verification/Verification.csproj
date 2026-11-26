@@ -25,6 +25,7 @@
     <Compile Include="../../src/DXSharp.Noesis/WorldPanelGeometry.cs" Link="WorldPanelGeometry.cs" />
     <Compile Include="../../src/DXSharp.Noesis/OverlayInput.cs" Link="OverlayInput.cs" />
     <None Include="../../samples/OrbitalCommand/Ui/*.xaml" Link="Ui/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../samples/Starfighter/Assets/cockpit.mesh" Link="Assets/cockpit.mesh" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../samples/Starfighter/Ui/*.xaml" Link="Ui/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -38,17 +38,17 @@ The header's **3D SOL** button selects a GPU-rendered analytic ray/sphere viewpo
 
 Ship transfers use bounded radial acceleration and smooth heading changes, coast/flip/burn/brake states and throttle-dependent exhaust. This is a controlled flight model, not a two-body transfer integrator.
 
-The procedural cockpit is once again the default while the imported eye mount is being qualified. To test the imported mesh with a provisional, adjustable eye:
+The procedural cockpit was temporarily the default in the stabilization patch; the imported cockpit is restored by the flight-control update below. To test the imported mesh with a provisional, adjustable eye:
 
 ```powershell
 $env:DXSHARP_COCKPIT_PREVIEW='1'
-$env:DXSHARP_COCKPIT_EYE='1.1,0.65,-0.65'
-$env:DXSHARP_COCKPIT_YAW='0' # try 180 or +/-90 if the seat faces another direction
+$env:DXSHARP_COCKPIT_EYE='1.1,0.85,1.2'
+$env:DXSHARP_COCKPIT_YAW='180' # baked cockpit faces -Z
 $env:DXSHARP_COCKPIT_SCALE='1'
 dotnet run --project samples/Starfighter
 ```
 
-These values are in the already baked mesh coordinates. They are not a visually qualified seat mount. Right mouse steers and middle mouse head-looks even over HUD backgrounds; left mouse still gives controls priority. CommunityToolkit.Mvvm 8.4.2 provides observable properties and relay commands in both samples and the linked-source verification project. Regenerate NuGet lockfiles with a normal restore before locked-mode CI. Windows runtime and HLSL qualification pending.
+These values are in the already baked mesh coordinates. They are not a visually qualified seat mount. Right mouse deflects a bounded virtual flight stick and middle mouse head-looks even over HUD backgrounds; left mouse still gives controls priority. CommunityToolkit.Mvvm 8.4.2 provides observable properties and relay commands in both samples and the linked-source verification project. Regenerate NuGet lockfiles with a normal restore before locked-mode CI. Windows runtime and HLSL qualification pending.
 
 ### Real ephemeris range
 
@@ -57,3 +57,22 @@ python eng/assets/fetch-horizons.py --days 365 --step-days 1
 ```
 
 This writes Data/horizons-series.csv (plus provenance) using eight sequential requests. Cubic Hermite interpolation uses position and velocity samples in AU/AU-day. No extrapolation: outside the cache range the display explicitly reports fitted-element mode. Daily samples are recommended; seven-day spacing is accepted but less accurate, especially for Mercury. The default no-argument command still writes the single-epoch CSV. The new range query requires a connected test against the official Horizons API: https://ssd-api.jpl.nasa.gov/doc/horizons.html.
+
+## Flight controls and calibrated cockpit
+
+The actual bundled DXCM mesh was inspected in overhead and pilot-eye projections. Its seat center is near X=1.1, dashboard is toward -Z, and the default pilot eye is (1.1,0.85,1.2) in baked coordinates. A 180-degree Y rotation aligns it with the fighter's +Z-forward frame. The original glTF faces +Z; the previous bake reflected Z. The source material FX_Glass has become opaque RGB8 (209,107,1) in DXCM v1; exactly 16 triangles are omitted at load time to expose the windshield. This is asset-specific, not a general glass renderer. No PBR textures or transparency pass yet. Imported geometry is default; DXSHARP_COCKPIT_PREVIEW=0 explicitly selects the old blockout. An absent mesh also falls back. Runtime camera placement still needs visual qualification on Windows.
+
+| Input | Action |
+|---|---|
+| W / S | Forward / reverse thrust |
+| A / D | Left / right translation |
+| R / F | Vertical thrust |
+| Down / Up arrow | Pull up / push down |
+| Left / Right arrow | Roll left / right |
+| Q / E | Limited yaw |
+| Right mouse drag | Virtual pitch/roll stick; up mouse motion raises nose; release centers stick |
+| Middle mouse drag | Independent pilot head-look |
+| Shift | Boost thrust |
+| Space | Boresight fire |
+
+Mouse events only deflect a virtual stick; the simulation integrates bounded body-local angular rates and quaternion attitude. Releasing the stick commands counter-thrust through the same angular acceleration limit. Translational velocity is inertial: no drag or instantaneous speed cap, including boost release. This is a flight-assisted arcade space model, not a full rigid-body torque/inertia tensor or gravity solver. Flight key events are consumed before reaching Noesis navigation. New tests exercise the actual bundled cockpit mesh, the forward-axis transform, the windshield triangle count, mouse event isolation, angular limits and inertial coasting.

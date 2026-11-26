@@ -79,7 +79,11 @@ public sealed class StarfighterGame : ObservableObject {
     private Vector3 _position = new( 0, 0.5f, -54 );
     private Vector3 _velocity = new( 0, 0, 8 );
     private Quaternion _orientation = Quaternion.Identity;
-    private Vector3 _angularVelocity;
+    private Vector3 _angularVelocity; // Body-local angular rates (rad/s).
+    private Vector2 _mouseStick; // X = roll, Y = pitch; held until released.
+    public Vector3 AngularVelocity => _angularVelocity;
+    public static readonly Vector3 MaxAngularRate = new( 1.15f, 0.32f, 1.65f );
+    public static readonly Vector3 MaxAngularAcceleration = new( 2.4f, 0.75f, 3.6f );
     // Head-look is deliberately independent from the fighter attitude. The pilot can
     // inspect the cockpit without steering the ship or changing the gun solution.
     private float _lookYaw, _lookPitch;
@@ -218,21 +222,19 @@ public sealed class StarfighterGame : ObservableObject {
 
     public void Look( float dx, float dy ) {
         if ( !float.IsFinite( dx ) || !float.IsFinite( dy ) ) return;
-        // RMB head-look is camera-only. Keep the ship attitude and weapon boresight
+        // MMB head-look is camera-only. Keep the ship attitude and weapon boresight
         // unchanged, and limit the pilot's neck travel to a plausible field of view.
         _lookYaw = Math.Clamp( _lookYaw + dx * 0.0029f, -1.72f, 1.72f );
         _lookPitch = Math.Clamp( _lookPitch + dy * 0.0029f, -1.12f, 1.12f );
     }
 
-    /// <summary>Steer the airframe around its local axes; independent head-look remains available.</summary>
+    /// <summary>Deflect a virtual flight stick. Only Tick integrates the airframe attitude.</summary>
     public void Steer( float dx, float dy ) {
         if ( Paused || GameOver || !float.IsFinite( dx ) || !float.IsFinite( dy ) ) return;
-        const float sensitivity = 0.0029f;
-        float yaw = Math.Clamp( dx * sensitivity, -0.35f, 0.35f );
-        float pitch = Math.Clamp( dy * sensitivity, -0.35f, 0.35f );
-        _orientation = Quaternion.Normalize( _orientation * Quaternion.CreateFromYawPitchRoll( yaw, pitch, 0 ) );
-        CenterLook( );
+        const float sensitivity = 1f / 145f;
+        _mouseStick = Vector2.Clamp( _mouseStick + new Vector2( dx, -dy ) * sensitivity, -Vector2.One, Vector2.One );
     }
+    public void ReleaseSteering( ) => _mouseStick = Vector2.Zero;
 
     // Pointer aim is limited to a small gimbal cone around the airframe. Space fires
     // along boresight; clicking the scene aims the twin guns at the pointer ray.
@@ -258,19 +260,27 @@ public sealed class StarfighterGame : ObservableObject {
                       bool strafeLeft, bool strafeRight, bool liftUp, bool liftDown,
                       bool boostKey, bool fireKey ) {
         float dt = (float)Math.Clamp( elapsed, 0, 0.05 );
-        if ( GameOver || Paused ) { RefreshReadouts( dt ); return; }
+        if ( GameOver || Paused ) { ReleaseSteering( ); RefreshReadouts( dt ); return; }
         _time += dt;
         _cameraShake *= MathF.Exp( -7.8f * dt );
         if ( _boosting ) _cameraShake = Math.Max( _cameraShake, 0.006f );
 
         float yawInput = (yawRight ? 1 : 0) - (yawLeft ? 1 : 0);
-        float pitchInput = (pitchUp ? 1 : 0) - (pitchDown ? 1 : 0);
-        float rollInput = (rollRight ? 1 : 0) - (rollLeft ? 1 : 0);
-        _angularVelocity += new Vector3( -pitchInput * 1.8f, yawInput * 1.45f, -rollInput * 2.25f ) * dt;
-        _angularVelocity *= MathF.Exp( -2.35f * dt );
-        var attitudeDelta = Quaternion.CreateFromYawPitchRoll( _angularVelocity.Y * dt, _angularVelocity.X * dt, _angularVelocity.Z * dt );
-        _orientation = Quaternion.Normalize( _orientation * attitudeDelta );
-        _rollReadout = MathF.IEEERemainder( _rollReadout + _angularVelocity.Z * dt, MathF.Tau );
+        float pitchInput = Math.Clamp( (pitchUp ? 1 : 0) - (pitchDown ? 1 : 0) + _mouseStick.Y, -1f, 1f );
+        float rollInput = Math.Clamp( (rollRight ? 1 : 0) - (rollLeft ? 1 : 0) + _mouseStick.X, -1f, 1f );
+        // A flight-assist rate controller commands reaction thrusters to accelerate
+        // or counter-thrust toward a bounded body-local rate. No instant turns.
+        Vector3 desiredRate = new Vector3( -pitchInput, yawInput, -rollInput ) * MaxAngularRate;
+        Vector3 previousRate = _angularVelocity;
+        Vector3 step = MaxAngularAcceleration * dt;
+        _angularVelocity += Vector3.Clamp( desiredRate - _angularVelocity, -step, step );
+        Vector3 rotation = (previousRate + _angularVelocity) * (0.5f * dt);
+        float angle = rotation.Length( );
+        if ( angle > 1e-8f ) {
+            var delta = Quaternion.CreateFromAxisAngle( rotation / angle, angle );
+            _orientation = Quaternion.Normalize( _orientation * delta );
+        }
+        _rollReadout = MathF.IEEERemainder( _rollReadout + rotation.Z, MathF.Tau );
 
         bool boosting = (boostKey || _boostToggle) && _boostEnergy > 1;
         bool boostChanged = boosting != _boosting;
@@ -281,11 +291,10 @@ public sealed class StarfighterGame : ObservableObject {
         Vector3 acceleration = Forward * (((thrust ? 1 : 0) - (reverse ? 0.62f : 0)) * thrustForce)
             + Right * (((strafeRight ? 1 : 0) - (strafeLeft ? 1 : 0)) * sideForce)
             + Up * (((liftUp ? 1 : 0) - (liftDown ? 1 : 0)) * sideForce);
+        // Translational inertia is independent of attitude. There is no drag in
+        // vacuum, nor a speed clamp which destroys momentum on boost release.
+        _position += _velocity * dt + acceleration * (0.5f * dt * dt);
         _velocity += acceleration * dt;
-        _velocity *= MathF.Exp( -0.035f * dt );
-        float maxSpeed = boosting ? 92 : 58;
-        if ( _velocity.LengthSquared( ) > maxSpeed * maxSpeed ) _velocity = Vector3.Normalize( _velocity ) * maxSpeed;
-        _position += _velocity * dt;
         _boostEnergy = Math.Clamp( _boostEnergy + (boosting ? -28f : 13f) * dt, 0, 100 );
         _heat = Math.Max( 0, _heat - dt * 25 );
         if ( _overheated && _heat < 32 ) { _overheated = false; Status = "EMITTERS COOLED // WEAPONS READY"; }
@@ -578,7 +587,7 @@ public sealed class StarfighterGame : ObservableObject {
         _time = 0; _readoutClock = 0.08; _spawnClock = 1.5f; _shotClock = _heat = 0; _shieldDelay = 0; _damageFlash = _cameraShake = 0; _boostEnergy = 100; _environmentImpactDelay = 0;
         _combo = _comboTimer = 0; _hull = _shield = 100; _score = 0; _kills = 0; _wave = 1;
         _overheated = _boostToggle = _boosting = _paused = _gameOver = false;
-        _lookYaw = _lookPitch = 0; ClearAim( );
+        _lookYaw = _lookPitch = 0; ReleaseSteering( ); ClearAim( );
         ChaseView = false;
         PauseVisibility = GameOverVisibility = DamageVisibility = N.Visibility.Collapsed;
         TargetVisibility = N.Visibility.Collapsed;
