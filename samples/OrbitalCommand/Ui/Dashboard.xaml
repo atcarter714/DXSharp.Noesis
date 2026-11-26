@@ -88,15 +88,16 @@
     <Grid.ColumnDefinitions><ColumnDefinition Width="264"/><ColumnDefinition Width="*"/><ColumnDefinition Width="284"/></Grid.ColumnDefinitions>
     <Border Tag="InputSurface" x:Name="HeaderPanel" Grid.ColumnSpan="3" Style="{StaticResource Panel}" Padding="18,10" MinHeight="70" Margin="0,0,0,14">
       <Grid>
-        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="105"/><ColumnDefinition Width="105"/><ColumnDefinition Width="115"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-        <StackPanel VerticalAlignment="Center">
-          <TextBlock Text="A R K A E N   /   K E P L E R" Foreground="{StaticResource Accent}" FontSize="12"/>
-          <TextBlock x:Name="BrandTitle" Text="ORBITAL COMMAND" FontSize="24" FontWeight="SemiBold" Margin="0,2,0,0"/>
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <StackPanel Grid.ColumnSpan="3" VerticalAlignment="Center" Margin="0,0,10,8">
+          <TextBlock Text="A R K A E N   /   K E P L E R" Foreground="{StaticResource Accent}" FontSize="11"/>
+          <TextBlock x:Name="BrandTitle" Text="ORBITAL COMMAND" FontSize="21" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
         </StackPanel>
-        <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Style="{StaticResource Caption}" Text="CREDITS"/><TextBlock x:Name="HeaderCredits" Text="{Binding Credits}" FontSize="20"/></StackPanel>
-        <StackPanel Grid.Column="2" VerticalAlignment="Center"><TextBlock Style="{StaticResource Caption}" Text="RESEARCH"/><TextBlock x:Name="HeaderResearch" Text="{Binding Research}" FontSize="20"/></StackPanel>
-        <StackPanel Grid.Column="3" VerticalAlignment="Center"><TextBlock Style="{StaticResource Caption}" Text="FLEET"/><TextBlock x:Name="HeaderFleetCount" Text="{Binding FleetCount}" FontSize="20"/></StackPanel>
-        <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
+        <StackPanel Grid.Row="1" Grid.Column="0" VerticalAlignment="Center"><TextBlock Style="{StaticResource Caption}" Text="CREDITS" Margin="0,0,0,2"/><TextBlock x:Name="HeaderCredits" Text="{Binding Credits}" FontSize="20"/></StackPanel>
+        <StackPanel Grid.Row="1" Grid.Column="1" VerticalAlignment="Center"><TextBlock Style="{StaticResource Caption}" Text="RESEARCH" Margin="0,0,0,2"/><TextBlock x:Name="HeaderResearch" Text="{Binding Research}" FontSize="20"/></StackPanel>
+        <StackPanel Grid.Row="1" Grid.Column="2" VerticalAlignment="Center"><TextBlock Style="{StaticResource Caption}" Text="FLEET" Margin="0,0,0,2"/><TextBlock x:Name="HeaderFleetCount" Text="{Binding FleetCount}" FontSize="20"/></StackPanel>
+        <StackPanel Grid.Column="3" Grid.RowSpan="2" Orientation="Horizontal" VerticalAlignment="Center">
           <Button Content="{Binding SolarMapButton}" Command="{Binding SolarMapCommand}" Margin="0,0,8,0" ToolTip="Solar System / Local Orbit"/>
           <Button x:Name="BriefingButton" Content="BRIEFING" Command="{Binding BriefingCommand}" Margin="0,0,8,0"/>
           <Button Content="F11" Command="{Binding FullscreenCommand}" ToolTip="Fullscreen · F11"/>
@@ -138,25 +139,7 @@
         <TextBlock Text="DRAG TO ORBIT   /   MIDDLE DRAG TO PAN   /   SCROLL TO ZOOM" Foreground="#A0BAC4" FontSize="11" HorizontalAlignment="Center"/>
         <TextBlock Text="Click a vessel or its label to select" Foreground="#608590" FontSize="11" Margin="0,5,0,0" HorizontalAlignment="Center"/>
       </StackPanel>
-      <Border Visibility="{Binding SolarMapVisibility}" Tag="InputSurface" Background="#FF0B1722" BorderBrush="#36486373" BorderThickness="1" CornerRadius="8" Padding="12">
-        <Grid>
-          <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-          <StackPanel><TextBlock Text="SOL / REAL EPHEMERIDES" FontSize="21" Foreground="{StaticResource Accent}"/><TextBlock Text="{Binding SolarStatus}" TextWrapping="Wrap" FontSize="12"/></StackPanel>
-          <Viewbox Grid.Row="1" Stretch="Uniform">
-            <Canvas Width="560" Height="560" ClipToBounds="True">
-              <Ellipse Canvas.Left="30" Canvas.Top="30" Width="500" Height="500" Stroke="#506A7A" StrokeThickness="1"/>
-              <Line X1="30" Y1="280" X2="530" Y2="280" Stroke="#365261"/><Line X1="280" Y1="30" X2="280" Y2="530" Stroke="#365261"/>
-              <Ellipse Canvas.Left="275" Canvas.Top="275" Width="10" Height="10" Fill="#FFC76F"/>
-              <ItemsControl ItemsSource="{Binding PlanetMarkers}" Width="560" Height="560">
-                <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-                <ItemsControl.ItemContainerStyle><Style TargetType="ContentPresenter"><Setter Property="Canvas.Left" Value="{Binding Left}"/><Setter Property="Canvas.Top" Value="{Binding Top}"/></Style></ItemsControl.ItemContainerStyle>
-                <ItemsControl.ItemTemplate><DataTemplate><StackPanel Orientation="Horizontal"><Ellipse Width="8" Height="8" Fill="#70E5D5" VerticalAlignment="Top" Margin="0,0,4,0"/><StackPanel><TextBlock Text="{Binding Name}" FontSize="13"/><TextBlock Text="{Binding Distance}" FontSize="10" Foreground="#879FAB"/></StackPanel></StackPanel></DataTemplate></ItemsControl.ItemTemplate>
-              </ItemsControl>
-            </Canvas>
-          </Viewbox>
-          <StackPanel Grid.Row="2"><TextBlock Text="{Binding SolarScaleText}" FontSize="12"/><TextBlock Text="Positions at snapshot epoch; marker sizes symbolic. No orbital propagation." FontSize="11" TextWrapping="Wrap"/><Button Content="{Binding SolarScaleButton}" Command="{Binding SolarScaleCommand}" Margin="0,6,0,0"/></StackPanel>
-        </Grid>
-      </Border>
+
     </Grid>
 
     <Border Tag="InputSurface" x:Name="InspectorPanel" Grid.Row="1" Grid.Column="2" Style="{StaticResource Panel}" Margin="0,0,0,14">
@@ -215,8 +198,40 @@
       <TextBlock Text="DXSHARP × NOESIS  /  DIRECT3D 12" Foreground="#64808E" FontSize="11"/>
       <TextBlock Text="{Binding Performance}" Foreground="#8AA6B3" FontSize="11" HorizontalAlignment="Right"/>
     </DockPanel>
+    <Border Grid.Row="1" Grid.RowSpan="2" Grid.ColumnSpan="3" Tag="InputSurface" Visibility="{Binding SolarMapVisibility}" Background="#F507101B" BorderBrush="#395768" BorderThickness="1" CornerRadius="8" Margin="0" Padding="14">
+    <Grid>
+      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+      <DockPanel>
+        <Button DockPanel.Dock="Right" Content="RETURN TO LOCAL" Command="{Binding SolarMapCommand}" Margin="12,0,0,0"/>
+        <StackPanel><TextBlock Text="SOL / HELIOCENTRIC ATLAS" FontSize="23" Foreground="{StaticResource Accent}"/><TextBlock Text="{Binding SolarStatus}" TextWrapping="Wrap" FontSize="11"/><TextBlock Text="{Binding SolarArtStatus}" TextWrapping="Wrap" FontSize="11" Foreground="#A5BDC9"/></StackPanel>
+      </DockPanel>
+      <Viewbox Grid.Row="1" Stretch="Uniform" Margin="0,8">
+        <Canvas Width="1200" Height="700" ClipToBounds="True" Background="#FF030812">
+          <Image Source="{Binding SolarBackdrop}" Width="1200" Height="700" Stretch="UniformToFill" Opacity="0.75" IsHitTestVisible="False"/>
+          <ItemsControl ItemsSource="{Binding SolarOrbits}" Width="1200" Height="700" IsHitTestVisible="False">
+            <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate><DataTemplate><Line X1="{Binding X1}" Y1="{Binding Y1}" X2="{Binding X2}" Y2="{Binding Y2}" Stroke="#6555899F" StrokeThickness="1"/></DataTemplate></ItemsControl.ItemTemplate>
+          </ItemsControl>
+          <ItemsControl ItemsSource="{Binding PlanetMarkers}" Width="1200" Height="700" IsHitTestVisible="False">
+            <ItemsControl.ItemsPanel><ItemsPanelTemplate><Canvas/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate><DataTemplate><Canvas>
+              <Ellipse Visibility="{Binding RingVisibility}" Canvas.Left="{Binding RingLeft}" Canvas.Top="{Binding RingTop}" Width="{Binding RingWidth}" Height="{Binding RingHeight}" Stroke="#B8A17E" StrokeThickness="{Binding RingStroke}"/>
+              <Ellipse Canvas.Left="{Binding Left}" Canvas.Top="{Binding Top}" Width="{Binding Diameter}" Height="{Binding Diameter}" Fill="{Binding Color}"/>
+              <Image Canvas.Left="{Binding Left}" Canvas.Top="{Binding Top}" Width="{Binding Diameter}" Height="{Binding Diameter}" Source="{Binding Artwork}" Stretch="Fill"/>
+              <StackPanel Canvas.Left="{Binding LabelLeft}" Canvas.Top="{Binding LabelTop}"><TextBlock Text="{Binding Name}" Foreground="#E2F4FF" FontSize="14"/><TextBlock Text="{Binding Distance}" Foreground="#A5BDC9" FontSize="11"/></StackPanel>
+            </Canvas></DataTemplate></ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </Canvas>
+      </Viewbox>
+      <Grid Grid.Row="2">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <StackPanel Margin="0,0,16,0"><TextBlock Text="{Binding SolarScaleText}"/><Slider Minimum="0" Maximum="4" Value="{Binding SolarZoom, Mode=TwoWay}"/></StackPanel>
+        <StackPanel Grid.Column="1" Margin="0,0,16,0"><TextBlock Text="{Binding BodyScaleText}"/><Slider Minimum="1" Maximum="2000" Value="{Binding BodyScale, Mode=TwoWay}"/></StackPanel>
+        <StackPanel Grid.Column="2" Orientation="Horizontal"><Button Content="INNER / OUTER" Command="{Binding SolarScaleCommand}" Margin="0,0,8,0"/><Button Content="RESET" Command="{Binding SolarResetCommand}"/></StackPanel>
+      </Grid>
+    </Grid>
+    </Border>
   </Grid>
-
   <Grid Tag="InputSurface" x:Name="BriefingLayer" Visibility="{Binding BriefingVisibility}" Background="#CA02070D">
     <Border Style="{StaticResource Panel}" Width="660" MaxHeight="{Binding ActualHeight, ElementName=BriefingLayer}" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="28" Background="#FF0D1F2C" BorderBrush="#4A8B8E">
       <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel>

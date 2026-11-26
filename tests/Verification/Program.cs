@@ -132,6 +132,10 @@ static class Program {
             var graphicsBottom = graphics.PointToScreen( new( 0, graphics.ActualHeight ) );
             Check( resetBottom.Y < graphicsBottom.Y, "The render-controls reset button was clipped." );
             Check( DisplayMetrics.Scale( 2160, 96, 1 ) > 1.2f, "Large-display UI did not gain a readable scale." );
+            Check( DisplayMetrics.Scale( 1280, 840, 192, 1.5f ) <= 1280f/1080f, "UI width cap failed." );
+            var sol=ApproximateEphemeris.At(2451545.0);
+            Check(sol.Count==8 && Math.Abs(Math.Sqrt(sol[2].X*sol[2].X+sol[2].Y*sol[2].Y+sol[2].Z*sol[2].Z)-.9833)<.003,"J2000 Earth distance mismatch.");
+            Check(sol.All(p=>double.IsFinite(p.X)&&double.IsFinite(p.Y)&&double.IsFinite(p.Z)),"Nonfinite ephemeris.");
             deck.IncreaseUiCommand.Execute( null ); Check( deck.InterfaceScale > 1, "Interface scaling command failed." );
             deck.DecreaseUiCommand.Execute( null );
             for ( int i = 0; i < 1400; i++ ) deck.Tick( 1.0 / 60, width, height, scale );

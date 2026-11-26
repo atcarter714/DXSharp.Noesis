@@ -61,8 +61,10 @@ public sealed class SceneRenderer : IDisposable {
                                                 MeshData exhaustData = SceneGeometry.EngineFlare( );
                                                 _exhaust = device.CreateMesh<Vertex>( commands, exhaustData.Vertices, exhaustData.Indices );
                                                 try {
-                                                    if ( Environment.GetEnvironmentVariable( "DXSHARP_COCKPIT_PREVIEW" ) == "1" ) {
-                                                        foreach ( MeshData chunk in CockpitMeshFile.Load( Path.Combine( AppContext.BaseDirectory, "Assets", "cockpit.mesh" ) ) )
+                                                    string cockpitPath = Path.Combine( AppContext.BaseDirectory, "Assets", "cockpit.mesh" );
+                                                    string? cockpitMode = Environment.GetEnvironmentVariable( "DXSHARP_COCKPIT_PREVIEW" );
+                                                    if ( cockpitMode == "1" || (cockpitMode != "0" && File.Exists( cockpitPath )) ) {
+                                                        foreach ( MeshData chunk in CockpitMeshFile.Load( cockpitPath ) )
                                                             _importedCockpit.Add( device.CreateMesh<Vertex>( commands, chunk.Vertices, chunk.Indices ) );
                                                     }
                                                     commands.Close( ); queue.Wait( queue.Submit( commands ) );

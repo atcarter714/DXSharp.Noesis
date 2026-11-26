@@ -65,36 +65,62 @@ public sealed class LogEntry {
 public sealed class CommandDeck : Observable {
     public Simulation Simulation { get; } = new( );
     public ObservableCollection<PlanetMarker> PlanetMarkers { get; } = [];
+    public ObservableCollection<OrbitSegment> SolarOrbits { get; } = [];
     private IReadOnlyList<PlanetState> _planetStates = [];
-    private bool _solarMap, _innerSolarMap = true;
-    private string _solarStatus = "No Horizons cache. Run eng/assets/fetch-horizons.py and rebuild.";
+    private bool _solarMap;
+    private float _solarZoom = 0, _bodyScale = 600;
+    private double _epoch = 2461370.5;
+    private string _solarStatus = "Select SOL to load ephemerides.";
     public string SolarStatus { get => _solarStatus; private set => Set( ref _solarStatus, value ); }
     public N.Visibility SolarMapVisibility => _solarMap ? N.Visibility.Visible : N.Visibility.Collapsed;
+    public N.BitmapImage? SolarBackdrop => SolarArtwork.Load("milkyway.jpg");
     public string SolarMapButton => _solarMap ? "LOCAL" : "SOL";
-    public string SolarScaleButton => _innerSolarMap ? "OUTER SYSTEM" : "INNER SYSTEM";
-    public string SolarScaleText => _innerSolarMap ? "Linear scale: ±1.8 AU" : "Linear scale: ±32 AU";
+    public float SolarZoom { get => _solarZoom; set { if (Set(ref _solarZoom,Math.Clamp(value,0,4))) { Notify(nameof(SolarScaleText));UpdatePlanetMarkers(); } } }
+    public float BodyScale { get => _bodyScale; set { if (Set(ref _bodyScale,Math.Clamp(value,1,2000))) { Notify(nameof(BodyScaleText));UpdatePlanetMarkers(); } } }
+    public double SolarExtent => 32.0 / Math.Pow(2,SolarZoom);
+    public string SolarScaleText => $"±{SolarExtent:F2} AU vertically";
+    public string BodyScaleText => BodyScale <= 1 ? "True relative radii" : $"Radius ×{BodyScale:F0} (visibility limits)";
+    public string SolarArtStatus => SolarArtwork.Status;
     public ICommand SolarMapCommand { get; }
     public ICommand SolarScaleCommand { get; }
-    private void LoadSolarSnapshot( ) {
+    public ICommand SolarResetCommand { get; }
+    private void LoadSolarSnapshot() {
+        string path=Path.Combine(AppContext.BaseDirectory,"Data","horizons.csv");
         try {
-            _planetStates = SolarSystemSnapshot.Load( Path.Combine( AppContext.BaseDirectory, "Data", "horizons.csv" ) );
-            SolarStatus = FormattableString.Invariant( $"NASA/JPL Horizons · JD {_planetStates[0].JulianDateTdb:F5} TDB · heliocentric ecliptic XY" );
-            UpdatePlanetMarkers( );
-        } catch ( Exception e ) when ( e is IOException or InvalidDataException or UnauthorizedAccessException or FormatException or OverflowException ) {
-            _planetStates = []; PlanetMarkers.Clear( );
-            SolarStatus = "Horizons cache unavailable. Run eng/assets/fetch-horizons.py and rebuild. " + e.Message;
+            _planetStates=SolarSystemSnapshot.Load(path); _epoch=_planetStates[0].JulianDateTdb;
+            SolarStatus=FormattableString.Invariant($"NASA/JPL Horizons · JD {_epoch:F5} TDB · geometric heliocentric J2000 ecliptic");
+        } catch (Exception e) when(e is IOException or InvalidDataException or UnauthorizedAccessException or FormatException or OverflowException) {
+            _epoch=DateTime.UtcNow.Subtract(DateTime.UnixEpoch).TotalDays+2440587.5+69.184/86400;
+            _epoch=Math.Clamp(_epoch,2378496.5,2469807.5);
+            _planetStates=ApproximateEphemeris.At(_epoch);
+            SolarStatus=FormattableString.Invariant($"NASA/JPL fitted elements · approximate JD {_epoch:F5} TDB · Earth–Moon barycenter; Horizons cache unavailable");
         }
+        UpdatePlanetMarkers();
     }
-    private void UpdatePlanetMarkers( ) {
-        PlanetMarkers.Clear( );
-        if ( _planetStates.Count == 0 ) return;
-        double extent = _innerSolarMap ? 1.8 : 32.0;
-        const double radius = 250;
-        foreach ( PlanetState state in _planetStates ) {
-            if ( Math.Abs( state.X ) > extent || Math.Abs( state.Y ) > extent ) continue;
-            double distance = Math.Sqrt( state.X * state.X + state.Y * state.Y + state.Z * state.Z );
-            PlanetMarkers.Add( new( state.Name, (float)(280 + state.X / extent * radius - 4),
-                (float)(280 - state.Y / extent * radius - 4), FormattableString.Invariant( $"{distance:F2} AU" ) ) );
+    private void UpdatePlanetMarkers() {
+        PlanetMarkers.Clear(); SolarOrbits.Clear();
+        if(_planetStates.Count==0)return;
+        const double cx=600,cy=350; double unit=350/SolarExtent;
+        string[] colors=["#8D8780","#D7BB85","#3982B5","#BC633C","#C4A27F","#D8BD85","#8CCAD0","#4269BB"];
+        float diameter(double km) {
+            double d=2*km/149597870.7*unit*BodyScale;
+            return (float)(BodyScale<=1 ? d : Math.Clamp(d,5,km>100000?40:100));
+        }
+        float sun=diameter(695700); PlanetMarkers.Add(new("Sun",(float)(cx-sun/2),(float)(cy-sun/2),"0 AU",sun,"#F6BD4D",(float)(cx+sun/2+4),(float)cy));
+        for(int i=0;i<8;i++) {
+            var state=_planetStates[i];
+            double x=cx+state.X*unit,y=cy-state.Y*unit;
+            if(x>=0&&x<=1200&&y>=0&&y<=700) {
+                float d=diameter(ApproximateEphemeris.RadiiKm[i]);
+                double distance=Math.Sqrt(state.X*state.X+state.Y*state.Y+state.Z*state.Z);
+                PlanetMarkers.Add(new(state.Name,(float)x-d/2,(float)y-d/2,$"{distance:F2} AU",d,colors[i],(float)Math.Clamp(x+d/2+5,0,1110),(float)Math.Clamp(y-d/2,0,665)));
+            }
+            // Reference ellipses from JPL fitted elements, not integrated Horizons tracks.
+            var prev=ApproximateEphemeris.Position(i,_epoch,0);
+            for(int k=1;k<=128;k++) {
+                var next=ApproximateEphemeris.Position(i,_epoch,k*2*Math.PI/128);
+                SolarOrbits.Add(new((float)(cx+prev.X*unit),(float)(cy-prev.Y*unit),(float)(cx+next.X*unit),(float)(cy-next.Y*unit)));prev=next;
+            }
         }
     }
 
@@ -153,8 +179,10 @@ public sealed class CommandDeck : Observable {
             Notify( nameof(SolarMapVisibility) ); Notify( nameof(SolarMapButton) );
         } );
         SolarScaleCommand = new ActionCommand( () => {
-            _innerSolarMap = !_innerSolarMap; UpdatePlanetMarkers( );
-            Notify( nameof(SolarScaleButton) ); Notify( nameof(SolarScaleText) );
+            SolarZoom = SolarZoom > 0.1f ? 0 : 4;
+        } );
+        SolarResetCommand = new ActionCommand( () => {
+            SolarZoom=0; BodyScale=600;
         } );
         foreach ( var ship in Simulation.Vessels ) Ships.Add( new( ship, Select ) );
         _selected = Ships[0];

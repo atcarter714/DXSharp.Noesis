@@ -31,4 +31,69 @@ public static class SolarSystemSnapshot {
     }
 }
 
-public sealed record PlanetMarker( string Name, float Left, float Top, string Distance );
+public sealed record PlanetMarker( string Name, float Left, float Top, string Distance, float Diameter, string Color, float LabelLeft, float LabelTop ) { public Noesis.BitmapImage? Artwork => SolarArtwork.Load(Name.ToLowerInvariant()+".png");
+    public Noesis.Visibility RingVisibility => Name=="Saturn" ? Noesis.Visibility.Visible : Noesis.Visibility.Collapsed;
+    public float RingWidth => Diameter*2.2f;
+    public float RingHeight => Diameter*.7f;
+    public float RingLeft => Left+Diameter*.5f-RingWidth*.5f;
+    public float RingTop => Top+Diameter*.5f-RingHeight*.5f;
+    public float RingStroke => Diameter*.11f;
+}
+public sealed record OrbitSegment(float X1,float Y1,float X2,float Y2);
+
+/// <summary>NASA/JPL SSD approximate planetary elements, Table 1 (1800–2050).
+/// Earth row is the Earth–Moon barycenter. Coordinates are heliocentric J2000 ecliptic AU.
+/// https://ssd.jpl.nasa.gov/planets/approx_pos.html</summary>
+public static class ApproximateEphemeris {
+    private static readonly double[][] Elements = [
+        [0.38709927,0.20563593,7.00497902,252.25032350,77.45779628,48.33076593,0.00000037,0.00001906,-0.00594749,149472.67411175,0.16047689,-0.12534081],
+        [0.72333566,0.00677672,3.39467605,181.97909950,131.60246718,76.67984255,0.00000390,-0.00004107,-0.00078890,58517.81538729,0.00268329,-0.27769418],
+        [1.00000261,0.01671123,-0.00001531,100.46457166,102.93768193,0,0.00000562,-0.00004392,-0.01294668,35999.37244981,0.32327364,0],
+        [1.52371034,0.09339410,1.84969142,-4.55343205,-23.94362959,49.55953891,0.00001847,0.00007882,-0.00813131,19140.30268499,0.44441088,-0.29257343],
+        [5.20288700,0.04838624,1.30439695,34.39644051,14.72847983,100.47390909,-0.00011607,-0.00013253,-0.00183714,3034.74612775,0.21252668,0.20469106],
+        [9.53667594,0.05386179,2.48599187,49.95424423,92.59887831,113.66242448,-0.00125060,-0.00050991,0.00193609,1222.49362201,-0.41897216,-0.28867794],
+        [19.18916464,0.04725744,0.77263783,313.23810451,170.95427630,74.01692503,-0.00196176,-0.00004397,-0.00242939,428.48202785,0.40805281,0.04240589],
+        [30.06992276,0.00859048,1.77004347,-55.12002969,44.96476227,131.78422574,0.00026291,0.00005105,0.00035372,218.45945325,-0.32241464,-0.00508664]
+    ];
+    public static readonly string[] Names=["Mercury","Venus","Earth","Mars","Jupiter","Saturn","Uranus","Neptune"];
+    public static readonly double[] RadiiKm=[2439.7,6051.8,6371.0,3389.5,69911,58232,25362,24622];
+    private const double Rad=Math.PI/180;
+    public static (double X,double Y,double Z) Position(int index,double jd,double? anomaly=null) {
+        double t=(jd-2451545.0)/36525.0;
+        var p=Elements[index]; double a=p[0]+t*p[6],e=p[1]+t*p[7],i=(p[2]+t*p[8])*Rad;
+        double l=(p[3]+t*p[9])*Rad,w=(p[4]+t*p[10])*Rad,node=(p[5]+t*p[11])*Rad;
+        double m=Math.IEEERemainder(l-w,2*Math.PI), E=anomaly??m;
+        if(anomaly is null) for(int k=0;k<12;k++) { double d=(E-e*Math.Sin(E)-m)/(1-e*Math.Cos(E)); E-=d; if(Math.Abs(d)<1e-13)break; }
+        double x=a*(Math.Cos(E)-e),y=a*Math.Sqrt(1-e*e)*Math.Sin(E),arg=w-node;
+        double u=x*Math.Cos(arg)-y*Math.Sin(arg),v=x*Math.Sin(arg)+y*Math.Cos(arg);
+        return (u*Math.Cos(node)-v*Math.Cos(i)*Math.Sin(node),u*Math.Sin(node)+v*Math.Cos(i)*Math.Cos(node),v*Math.Sin(i));
+    }
+    public static IReadOnlyList<PlanetState> At(double jd) {
+        var result=new List<PlanetState>(8);
+        for(int i=0;i<8;i++) { var p=Position(i,jd); var a=Position(i,jd-.005);var b=Position(i,jd+.005);result.Add(new(199+100*i,Names[i],jd,p.X,p.Y,p.Z,(b.X-a.X)/.01,(b.Y-a.Y)/.01,(b.Z-a.Z)/.01)); }
+        return result;
+    }
+}
+
+public static class SolarArtwork {
+    private static bool _enabled;
+    private static readonly Dictionary<string,Noesis.BitmapImage> Images=new(StringComparer.Ordinal);
+    public static void Initialize() => _enabled=true;
+    public static void Clear() { Images.Clear(); _enabled=false; }
+    public static string Status {
+        get {
+            try {
+                using var doc=System.Text.Json.JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"Ui","Solar","provenance.json")));
+                bool measured=doc.RootElement.GetProperty("milkyway").GetString()?.StartsWith("https://svs.gsfc.nasa.gov/",StringComparison.Ordinal)==true;
+                return measured ? "NASA SVS sky · illustrative planet lighting · reference orbits" : "Illustrative sky and globes · download source maps for observed artwork";
+            } catch(Exception e) when(e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or KeyNotFoundException) {
+                return "Artwork provenance unavailable · reference orbits";
+            }
+        }
+    }
+    public static Noesis.BitmapImage? Load(string file) {
+        if(!_enabled || !File.Exists(Path.Combine(AppContext.BaseDirectory,"Ui","Solar",file)))return null;
+        if(!Images.TryGetValue(file,out var image))Images.Add(file,image=new Noesis.BitmapImage(new Uri("Solar/"+file,UriKind.Relative)));
+        return image;
+    }
+}

@@ -64,6 +64,8 @@ internal static class Program {
             MinimumSize = new( 1100, 700 ),
             StartPosition = Forms.FormStartPosition.CenterScreen
         };
+        using var appIcon = System.Drawing.Icon.ExtractAssociatedIcon( System.Windows.Forms.Application.ExecutablePath );
+        if ( appIcon is not null ) window.Icon = appIcon;
         _ = window.Handle;
         float initialScale = window.DeviceDpi / 96f;
         if ( smoke ) window.ClientSize = new( (int)(1280 * initialScale), (int)(800 * initialScale) );
