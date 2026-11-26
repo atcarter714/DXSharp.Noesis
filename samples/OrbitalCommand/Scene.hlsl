@@ -125,7 +125,9 @@ float3 Rotate(float3 p) { float s = sin(Detail.x), c = cos(Detail.x); return flo
 MeshOutput VSShip(MeshInput input) {
     MeshOutput o;
     float3 shape = Detail.z == 1 ? float3(0.85, 1.1, 1.25) : Detail.z == 2 ? float3(1.5, 1.3, 1.4) : Detail.z == 3 ? float3(1.2, 0.9, 1.05) : Detail.z == 4 ? float3(0.7, 0.8, 0.95) : float3(1, 1, 1);
-    o.world = Rotate(input.position * Object.w * shape) + Object.xyz;
+    float3 local=input.position;
+    if(Detail.z<10 && input.color.b>2 && local.z>.18) local.z=.18+(local.z-.18)*(.18+Detail.w*1.7);
+    o.world = Rotate(local * Object.w * shape) + Object.xyz;
     o.normal = Rotate(input.normal / shape); o.color = input.color;
     float3 p = o.world - CameraTime.xyz;
     float z = dot(p, ForwardAspect.xyz);
@@ -142,6 +144,7 @@ float4 PSShip(MeshOutput input, bool front : SV_IsFrontFace) : SV_Target {
     float diffuse = 0.09 + saturate(dot(n, Sun)) * 1.15;
     float emissive = step(0.8, max(input.color.g, input.color.b));
     float3 color = input.color * lerp(diffuse, 1.2, emissive);
+    if(Detail.z<10 && input.color.b>2) color*=.25+Detail.w*1.3;
     float specular = pow(saturate(dot(n, normalize(Sun - normalize(toPoint)))), 35) * 0.23 * (1 - emissive);
     color += specular * float3(0.7, 0.86, 1.0);
     color += pow(1 - abs(dot(n, normalize(-toPoint))), 3) * float3(0.02, 0.3, 0.37) * (0.5 + Detail.y);

@@ -31,3 +31,21 @@ The Noesis logo is the supplied artwork, converted to a multi-resolution Windows
 ## Verification
 
 Build and run both samples on Windows, then run tests/Verification. Check the two-row top bar at normal, narrow, fullscreen and high-DPI sizes; SOL/LOCAL transitions, sliders, texture loading, and cockpit placement. Windows and Noesis runtime validation remain pending. No proprietary Arkaen content is included.
+
+## Live 3D SOL and controls (follow-up)
+
+The header's **3D SOL** button selects a GPU-rendered analytic ray/sphere viewport, distinct from the existing **SOL** atlas. Drag to orbit, middle drag to pan, wheel to zoom, click a visible planet to focus, and use the date controls to advance or rewind the Julian epoch. The rate is in simulated days per second; the existing simulation pause also pauses the date. The model evaluates the published JPL 1800–2050 fitted elements in double precision and uses the Horizons cache epoch as its starting date, not the cached positions as a continuously valid ephemeris. Earth means the Earth–Moon barycenter. Circular orbit guides, ecliptic Saturn rings, procedural surface colors and procedural directional sky are illustrative. The downloaded artwork remains in the atlas; the 3D renderer does not sample it yet. Radius exaggeration uses a cap and a minimum apparent planet size except at true scale. Planet labels are culled for overlaps; picking is screen-space. Local fleet play remains separate and continues while browsing SOL.
+
+Ship transfers use bounded radial acceleration and smooth heading changes, coast/flip/burn/brake states and throttle-dependent exhaust. This is a controlled flight model, not a two-body transfer integrator.
+
+The procedural cockpit is once again the default while the imported eye mount is being qualified. To test the imported mesh with a provisional, adjustable eye:
+
+```powershell
+$env:DXSHARP_COCKPIT_PREVIEW='1'
+$env:DXSHARP_COCKPIT_EYE='1.1,0.65,-0.65'
+$env:DXSHARP_COCKPIT_YAW='0' # try 180 or +/-90 if the seat faces another direction
+$env:DXSHARP_COCKPIT_SCALE='1'
+dotnet run --project samples/Starfighter
+```
+
+These values are in the already baked mesh coordinates. They are not a visually qualified seat mount. Right mouse steers and middle mouse head-looks even over HUD backgrounds; left mouse still gives controls priority. CommunityToolkit.Mvvm 8.4.2 provides observable properties and relay commands in both samples and the linked-source verification project. Regenerate NuGet lockfiles with a normal restore before locked-mode CI. Windows runtime and HLSL qualification pending.

@@ -15,7 +15,13 @@ public sealed class Vessel {
     public Mission Mission { get; set; }
     public Vector3 Position => new( MathF.Cos( Phase ) * Radius, MathF.Sin( Phase ) * Inclination,
         MathF.Sin( Phase ) * Radius );
-    public float Heading => MathF.PI - Phase;
+    public float Heading { get; set; }
+    public float RadialVelocity { get; internal set; }
+    public float Throttle { get; internal set; } = 0.12f;
+    public string FlightPhase { get; internal set; } = "ORBIT";
+    internal float TransferRadius { get; set; }
+    internal static float AngleDelta(float a,float b)=>MathF.IEEERemainder(b-a,MathF.Tau);
+    internal static float Turn(float from,float to,float maxDelta)=>from+Math.Clamp(AngleDelta(from,to),-maxDelta,maxDelta);
 }
 
 /// <summary>Deterministic, bounded showcase simulation. All mutations run on the UI/render thread.</summary>
@@ -40,7 +46,7 @@ public sealed class Simulation {
 
     private void Add( string name, string role, float radius, float phase, float inclination ) => Vessels.Add( new( ) {
         Name = name, Role = role, Radius = radius, Phase = phase, Inclination = inclination,
-        Speed = 0.22f / MathF.Pow( radius, 1.5f )
+        Speed = 0.22f / MathF.Pow( radius, 1.5f ), Heading=MathF.PI-phase, TransferRadius=radius
     } );
 
     public void Tick( double realSeconds ) {
@@ -50,10 +56,37 @@ public sealed class Simulation {
         Time += dt;
         Credits += dt * (2.5 + Vessels.Count * 0.3);
         foreach ( var ship in Vessels ) {
-            float multiplier = ship.Mission == Mission.Patrol ? 2.2f : 1;
-            ship.Phase = (ship.Phase + dt * ship.Speed * multiplier) % MathF.Tau;
-            float targetRadius = ship.Mission == Mission.Return ? 1.58f : ship.Mission == Mission.Survey ? 3.25f : ship.Radius;
-            ship.Radius += (targetRadius - ship.Radius) * Math.Min( 1, dt * 0.4f );
+            // Bounded radial transfer plus angular motion. This is an intentionally
+            // controlled showcase flight law, not a gravitational trajectory solver.
+            float multiplier=ship.Mission==Mission.Patrol?2.2f:1;
+            float omega=0.22f/MathF.Pow(Math.Max(ship.Radius,1.4f),1.5f)*multiplier;
+            ship.Phase=(ship.Phase+dt*omega)%MathF.Tau;
+            const float acceleration=.24f,maxSpeed=.38f,turnRate=2.8f;
+            float remaining=ship.TransferRadius-ship.Radius;
+            float desiredVelocity=MathF.CopySign(Math.Min(maxSpeed,MathF.Sqrt(2*acceleration*MathF.Abs(remaining))),remaining);
+            if(MathF.Abs(remaining)<.003f)desiredVelocity=0;
+            float deltaV=Math.Clamp(desiredVelocity-ship.RadialVelocity,-acceleration*dt,acceleration*dt);
+            float desiredAcceleration=dt>0?deltaV/dt:0;
+            float tangentialHeading=MathF.PI-ship.Phase;
+            if(MathF.Abs(desiredAcceleration)>.008f) {
+                // Mesh forward is local -Z. Radial acceleration selects the nose
+                // direction; braking reverses that direction, with a bounded turn.
+                float thrustHeading=-MathF.PI*.5f-ship.Phase+(desiredAcceleration<0?MathF.PI:0);
+                ship.Heading=Vessel.Turn(ship.Heading,thrustHeading,turnRate*dt);
+                float alignment=Math.Max(0,MathF.Cos(Vessel.AngleDelta(ship.Heading,thrustHeading)));
+                ship.Throttle=Math.Clamp(MathF.Abs(desiredAcceleration)/acceleration*alignment,0,1);
+                ship.FlightPhase=alignment<.8f?"FLIP":ship.RadialVelocity*desiredAcceleration<-.001f?"BRAKE":"BURN";
+                ship.RadialVelocity+=deltaV*alignment;
+            } else {
+                ship.Heading=Vessel.Turn(ship.Heading,tangentialHeading,turnRate*dt);
+                ship.Throttle=ship.Mission==Mission.Patrol?.6f:.12f;
+                ship.FlightPhase=ship.Mission==Mission.Patrol?"PATROL":"COAST";
+            }
+            float nextRadius=ship.Radius+ship.RadialVelocity*dt;
+            if(MathF.Abs(remaining)<.003f||((ship.TransferRadius-ship.Radius)*(ship.TransferRadius-nextRadius)<0)) {
+                nextRadius=ship.TransferRadius; ship.RadialVelocity=0;
+            }
+            ship.Radius=Math.Clamp(nextRadius,1.42f,3.45f);
             if ( ship.Mission != Mission.Survey ) continue;
             ship.Survey = Math.Min( 1, ship.Survey + dt / 22 );
             if ( ship.Survey < 1 ) continue;
@@ -68,6 +101,7 @@ public sealed class Simulation {
     public void Order( Vessel vessel, Mission mission ) {
         if ( !Vessels.Contains( vessel ) ) throw new ArgumentException( "The vessel is not in this fleet.", nameof(vessel) );
         vessel.Mission = mission;
+        vessel.TransferRadius=mission switch { Mission.Return=>1.58f,Mission.Survey=>3.25f,_=>vessel.Radius };
         if ( mission == Mission.Survey ) vessel.Survey = 0;
         Event?.Invoke( $"{vessel.Name}: {mission switch { Mission.Survey => "outer-ring survey accepted", Mission.Patrol => "high-speed patrol engaged", Mission.Return => "returning to inner anchorage", _ => "holding orbital track" }}." );
     }

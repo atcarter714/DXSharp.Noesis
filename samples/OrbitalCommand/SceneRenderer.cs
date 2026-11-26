@@ -88,7 +88,7 @@ public sealed class SceneRenderer : IDisposable {
         for ( int i = 0; i < deck.Ships.Count; i++ ) {
             var ship = deck.Ships[i].Vessel;
             Put( 20, ship.Position, ship.Role == "Freighter" ? 1.1f : 0.85f );
-            Put( 24, ship.Heading ); Put( 25, i == deck.SelectionIndex ? 1 : 0 ); Put( 26, ship.Role switch { "Corvette" => 1, "Freighter" => 2, "Surveyor" => 3, "Interceptor" => 4, _ => 0 } ); Put( 27, 0 );
+            Put( 24, ship.Heading ); Put( 25, i == deck.SelectionIndex ? 1 : 0 ); Put( 26, ship.Role switch { "Corvette" => 1, "Freighter" => 2, "Surveyor" => 3, "Interceptor" => 4, _ => 0 } ); Put( 27, ship.Throttle );
             commands.SetGraphicsConstants( _constants ); commands.DrawMesh( _ship ); MeshDraws++;
         }
         Put( 20, new Vector3( 0, 0.19f, 1.58f ), 1 );
