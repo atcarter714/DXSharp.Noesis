@@ -135,7 +135,7 @@ internal static class Program {
             var button = MapButton( e.Button ); if ( button is null ) return;
             lastMouseX = e.X; lastMouseY = e.Y;
             if ( uiPointer || lookPointer || firePointer ) return;
-            if ( hitTest.BlocksSceneAt( e.X, e.Y ) ) {
+            if ( e.Button == Forms.MouseButtons.Left && hitTest.BlocksSceneAt( e.X, e.Y ) ) {
                 uiPointer = true; uiButton = button;
                 view.MouseMove( e.X, e.Y ); view.MouseButtonDown( e.X, e.Y, button.Value );
                 window.Capture = true;

@@ -195,7 +195,7 @@ public sealed class StarfighterGame : ObservableObject {
     public StarfighterGame( ) {
         FireCommand = new RelayCommand( FireOnce );
         BoostCommand = new RelayCommand( ToggleBoost );
-        PauseCommand = new RelayCommand( () => Paused = !Paused, () => !GameOver );
+        PauseCommand = new RelayCommand( () => { if(!GameOver)Paused=!Paused; }, () => !GameOver );
         RestartCommand = new RelayCommand( Restart );
         FullscreenCommand = new RelayCommand( () => ToggleFullscreen?.Invoke( ) );
         TargetCycleCommand = new RelayCommand( CycleTarget );

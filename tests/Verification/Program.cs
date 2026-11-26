@@ -162,8 +162,10 @@ static class Program {
             deck.Tick( 0.1, width, height, scale );
             Check( vessel.Mission == Mission.Patrol && vessel.Phase != phase, "Patrol did not advance the selected vessel." );
             deck.RecallCommand.Execute( null ); float radius = vessel.Radius;
-            deck.Tick( 0.1, width, height, scale );
-            Check( vessel.Radius < radius, "Recall did not converge on the anchorage." );
+            for(int i=0;i<120;i++) deck.Tick(1.0/60,width,height,scale);
+            Check( vessel.Radius < radius, "Recall did not begin the bounded transfer." );
+            float heading=vessel.Heading; deck.Tick(1.0/60,width,height,scale);
+            Check(Math.Abs(MathF.IEEERemainder(vessel.Heading-heading,MathF.Tau))<=2.8f/60+.0001f,"Ship attitude snapped during transfer.");
             deck.Camera.Reset( );
             Vector3 front = Vector3.Normalize( deck.Camera.Position ) * 2;
             Check( deck.Camera.Project( front, width, height, out _ ), "A visible world point failed camera projection." );
