@@ -3,8 +3,8 @@ using System.Numerics;
 namespace Starfighter;
 
 /// <summary>Rebases a baked cockpit around a pilot eye without changing flight coordinates.</summary>
-public readonly record struct CockpitCalibration(Vector3 Eye,float YawDegrees,float Scale) {
-    public static CockpitCalibration FromEnvironment() {
+public readonly record struct CockpitCalibration( Vector3 Eye,float YawDegrees,float Scale ) {
+    public static CockpitCalibration FromEnvironment( ) {
         // The previously baked asset is not centered. Default remains explicitly
         // provisional; select another eye and forward direction without rebaking.
         string? text=Environment.GetEnvironmentVariable("DXSHARP_COCKPIT_EYE");
@@ -24,9 +24,11 @@ public readonly record struct CockpitCalibration(Vector3 Eye,float YawDegrees,fl
             return f;
         }
     }
-    public MeshData Apply(MeshData source) {
-        var rotation=Matrix4x4.CreateRotationY(YawDegrees*MathF.PI/180);
-        return new(source.Vertices.Select(v=>new Vertex(Vector3.Transform(v.Position-Eye,rotation)*Scale,
-            Vector3.Normalize(Vector3.TransformNormal(v.Normal,rotation)),v.Color)).ToArray(),source.Indices);
+    public MeshData Apply( MeshData source ) {
+        var                rotation           = Matrix4x4.CreateRotationY( YawDegrees*MathF.PI/180 ) ;
+        CockpitCalibration calibration        = this ;
+        CockpitCalibration cockpitCalibration = this ;
+        return new(source.Vertices.Select( v => new Vertex(Vector3.Transform(v.Position- calibration.Eye,rotation)* cockpitCalibration.Scale,
+                                                        Vector3.Normalize(Vector3.TransformNormal(v.Normal,rotation)),v.Color)).ToArray(),source.Indices ) ;
     }
 }
