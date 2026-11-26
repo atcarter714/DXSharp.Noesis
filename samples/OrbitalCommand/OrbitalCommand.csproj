@@ -13,6 +13,7 @@
     <None Update="Ui/Dashboard.xaml" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Ui/Solar/**/*" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Data/horizons.csv" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="Data/horizons-series.csv" CopyToOutputDirectory="PreserveNewest" />
     <None Update="Scene.hlsl" CopyToOutputDirectory="PreserveNewest" />
     <None Update="SolarScene.hlsl" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

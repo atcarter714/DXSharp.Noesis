@@ -142,6 +142,10 @@ static class Program {
             var sol=ApproximateEphemeris.At(2451545.0);
             Check(sol.Count==8 && Math.Abs(Math.Sqrt(sol[2].X*sol[2].X+sol[2].Y*sol[2].Y+sol[2].Z*sol[2].Z)-.9833)<.003,"J2000 Earth distance mismatch.");
             Check(sol.All(p=>double.IsFinite(p.X)&&double.IsFinite(p.Y)&&double.IsFinite(p.Z)),"Nonfinite ephemeris.");
+            var ha=new PlanetState(399,"Earth",2451545,1,2,3,2,0,-1);
+            var hb=new PlanetState(399,"Earth",2451546,3,2,2,2,0,-1);
+            var hm=HorizonsSeries.Interpolate(ha,hb,2451545.5,.5,1);
+            Check(Math.Abs(hm.X-2)<1e-10&&Math.Abs(hm.Z-2.5)<1e-10&&Math.Abs(hm.Vx-2)<1e-10,"Horizons interpolation failed for linear motion.");
             deck.Solar3DCommand.Execute(null); Check(deck.Solar3D&&deck.Camera.SolarMode&&deck.SolarStates.Count==8,"3D solar mode failed.");
             var earthBefore=deck.SolarStates[2];
             deck.SolarNextCommand.Execute(null);

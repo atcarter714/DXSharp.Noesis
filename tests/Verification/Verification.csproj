@@ -15,6 +15,7 @@
     <Compile Include="../../samples/OrbitalCommand/Simulation.cs" Link="Simulation.cs" />
     <Compile Include="../../samples/OrbitalCommand/CommandDeck.cs" Link="CommandDeck.cs" />
     <Compile Include="../../samples/OrbitalCommand/SolarSystemSnapshot.cs" Link="SolarSystemSnapshot.cs" />
+    <Compile Include="../../samples/Starfighter/CockpitCalibration.cs" Link="Starfighter/CockpitCalibration.cs" />
     <Compile Include="../../samples/Starfighter/CockpitMeshFile.cs" Link="Starfighter/CockpitMeshFile.cs" />
     <Compile Include="../../samples/OrbitalCommand/SceneGeometry.cs" Link="SceneGeometry.cs" />
     <Compile Include="../../samples/Starfighter/Game.cs" Link="Starfighter/Game.cs" />

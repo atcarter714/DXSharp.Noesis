@@ -60,6 +60,9 @@ public sealed class CommandDeck : Observable {
     private IReadOnlyList<PlanetState> _planetStates = [];
     private bool _solarMap;
     private bool _solar3D;
+    private HorizonsSeries? _series;
+    private bool _usingHorizons;
+    public string SolarEphemerisSource => _usingHorizons ? "JPL Horizons · interpolated states" : "JPL fitted elements · Earth–Moon barycenter";
     private double _solarJd=2461370.5;
     private bool _solarClockRunning=true;
     private float _daysPerSecond=2;
@@ -68,7 +71,7 @@ public sealed class CommandDeck : Observable {
     public N.Visibility Solar3DVisibility => Solar3D ? N.Visibility.Visible : N.Visibility.Collapsed;
     public string Solar3DButton => Solar3D ? "KEPLER" : "3D SOL";
     public string WorldTitle => Solar3D ? "SOL / HELIOCENTRIC" : "KEPLER / 07";
-    public string WorldSubtitle => Solar3D ? "3D · J2000 ecliptic AU · fitted JPL elements" : "Terrestrial world · equatorial ring system";
+    public string WorldSubtitle => Solar3D ? "3D · J2000 ecliptic AU · "+SolarEphemerisSource : "Terrestrial world · equatorial ring system";
     public string SolarDateText => DateTime.UnixEpoch.AddDays(_solarJd-2440587.5).ToString("yyyy-MM-dd HH:mm")+" TDB (approx.)";
     public bool SolarClockRunning { get=>_solarClockRunning; set=>Set(ref _solarClockRunning,value); }
     public float DaysPerSecond { get=>_daysPerSecond; set { if(Set(ref _daysPerSecond,Math.Clamp(value,0,30))) Notify(nameof(SolarRateText)); } }
@@ -91,8 +94,16 @@ public sealed class CommandDeck : Observable {
     }
     private void SetSolarDate(double jd) {
         _solarJd=Math.Clamp(jd,2378496.5,2469807.5);
-        SolarStates=ApproximateEphemeris.At(_solarJd);
+        RefreshSolarStates();
         Notify(nameof(SolarDateText));
+    }
+    private void RefreshSolarStates() {
+        bool previous=_usingHorizons;
+        if(_series!=null&&_series.TryAt(_solarJd,out var actual)) { SolarStates=actual; _usingHorizons=true; }
+        else if(_planetStates.Count==8&&_planetStates.All(p=>p.JulianDateTdb==_solarJd)&&SolarStatus.StartsWith("NASA/JPL Horizons",StringComparison.Ordinal)) {
+            SolarStates=_planetStates; _usingHorizons=true;
+        } else { SolarStates=ApproximateEphemeris.At(_solarJd); _usingHorizons=false; }
+        if(previous!=_usingHorizons) { Notify(nameof(SolarEphemerisSource));Notify(nameof(WorldSubtitle)); }
     }
     private void ToggleSolar3D() {
         _solar3D=!_solar3D;
@@ -101,7 +112,9 @@ public sealed class CommandDeck : Observable {
         Camera.SolarMode=_solar3D; Camera.Reset();
         if(_solar3D && SolarStates.Count==0) {
             LoadSolarSnapshot();
-            SetSolarDate(_epoch);
+            try { _series=HorizonsSeries.Load(Path.Combine(AppContext.BaseDirectory,"Data","horizons-series.csv")); }
+            catch(Exception e) when(e is IOException or InvalidDataException or UnauthorizedAccessException or FormatException or OverflowException) { _series=null; }
+            SetSolarDate(_series?.Start??_epoch);
         }
         if(!_solar3D)SolarWorldLabels.Clear();
         Notify(nameof(Solar3D)); Notify(nameof(Solar3DVisibility)); Notify(nameof(Solar3DButton));
@@ -285,7 +298,7 @@ public sealed class CommandDeck : Observable {
         if(Solar3D) {
             if(SolarClockRunning && Simulation.Time>before) {
                 _solarJd=Math.Min(2469807.5,_solarJd+(Simulation.Time-before)*DaysPerSecond);
-                SolarStates=ApproximateEphemeris.At(_solarJd);
+                RefreshSolarStates();
             }
             if(_solarFocus>=0 && _solarFocus<SolarStates.Count)Camera.Target=SolarPosition(SolarStates[_solarFocus]);
             _solarUiTime+=dt;
